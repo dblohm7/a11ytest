@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <ShellScalingApi.h>
+#include <uxtheme.h>
 
 #include <algorithm>
 #include <memory>
@@ -18,10 +19,14 @@
 #undef max
 #endif  // defined(max)
 
+static const WCHAR kClassName[] = L"ASPKWindowSelector";
+
 static HWND target = NULL;
 static HWND lastTarget = NULL;
 static HCURSOR prevCursor = NULL;
 static bool breakMsgLoop = false;
+
+static const int kDefaultWindowWidth = 273;
 
 struct ModuleDeleter {
   using pointer = HMODULE;
@@ -36,7 +41,7 @@ using GetDpiForMonitorPtr = LRESULT (WINAPI*)(HMONITOR,MONITOR_DPI_TYPE,UINT*,UI
 
 static const UINT kDefaultDpi = 96U;
 
-static UINT GetEffectiveDpi(HWND aHwnd) {
+static UINT GetEffectiveDpi(HMONITOR aMonitor) {
   static UniqueModule shcore(::LoadLibraryW(L"shcore.dll"));
   if (!shcore) {
     return kDefaultDpi;
@@ -49,23 +54,46 @@ static UINT GetEffectiveDpi(HWND aHwnd) {
     return kDefaultDpi;
   }
 
-  HMONITOR monitor = ::MonitorFromWindow(aHwnd, MONITOR_DEFAULTTONEAREST);
-
   UINT dpiX, dpiY;
-  if (FAILED(pGetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
+  if (FAILED(pGetDpiForMonitor(aMonitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
     return kDefaultDpi;
   }
 
   return std::max(dpiX, dpiY);
 }
 
-static int GetBorderWidth(HWND aHwnd) {
-  UINT dpi = GetEffectiveDpi(aHwnd);
-  return ::GetSystemMetrics(SM_CXBORDER) * dpi / kDefaultDpi;
+static UINT GetEffectiveDpi(HWND aHwnd) {
+  HMONITOR monitor = ::MonitorFromWindow(aHwnd, MONITOR_DEFAULTTONEAREST);
+  return GetEffectiveDpi(monitor);
 }
 
-static int ScaleWidth(HWND aHwnd, int aWidth) {
-  return aWidth * GetEffectiveDpi(aHwnd) / kDefaultDpi;
+template <typename HandleT>
+static int ScaleWidth(HandleT aHandle, int aWidth) {
+  return aWidth * GetEffectiveDpi(aHandle) / kDefaultDpi;
+}
+
+static int GetScaledSystemMetric(HWND aHwnd, int aSmIndex) {
+  return ScaleWidth(aHwnd, ::GetSystemMetrics(aSmIndex));
+}
+
+static RECT ComputeWindowPos(HMONITOR aMonitor) {
+  UINT dpi = GetEffectiveDpi(aMonitor);
+
+  int scaled = ScaleWidth(aMonitor, kDefaultWindowWidth);
+
+  RECT result = {CW_USEDEFAULT, CW_USEDEFAULT, scaled, scaled};
+  return result;
+}
+
+static RECT ComputeWindowPos(HWND aHwnd) {
+  return ComputeWindowPos(::MonitorFromWindow(aHwnd, MONITOR_DEFAULTTONEAREST));
+}
+
+static RECT GetInitialWindowPos() {
+  const POINT zeros = {};
+  HMONITOR defaultMonitor = ::MonitorFromPoint(zeros, MONITOR_DEFAULTTOPRIMARY);
+
+  return ComputeWindowPos(defaultMonitor);
 }
 
 static void
@@ -75,7 +103,7 @@ Highlight(HWND hwnd)
     return;
   }
 
-  int cxBorder = GetBorderWidth(hwnd);
+  int cxBorder = GetScaledSystemMetric(hwnd, SM_CXBORDER);
 
   RECT rect;
   GetWindowRect(hwnd, &rect);
@@ -96,6 +124,42 @@ Highlight(HWND hwnd)
   InvalidateRect(hwnd, &rect, TRUE);
 }
 
+static void Erase(HDC aDc, const RECT& aRect) {
+  WNDCLASSEX clsEx = { sizeof(clsEx) };
+  GetClassInfoEx((HINSTANCE) ::GetModuleHandle(nullptr), kClassName, &clsEx);
+
+  HBRUSH bgBrush = clsEx.hbrBackground;
+  // If the window class specifies a system brush color, convert it to a real
+  // HBRUSH
+  if (bgBrush <= ((HBRUSH)(COLOR_MENUBAR + 1))) {
+    bgBrush = GetSysColorBrush(((intptr_t)bgBrush) - 1);
+  }
+
+  ::SelectObject(aDc, bgBrush);
+  ::FillRect(aDc, &aRect, bgBrush);
+}
+
+static void PaintCrossHairs(HWND aHwnd, HDC aDc) {
+  if (prevCursor) {
+    // We don't paint the cursor during mouse capture
+    return;
+  }
+
+  RECT rect;
+  if (!::GetClientRect(aHwnd, &rect)) {
+    return;
+  }
+
+  int w = GetScaledSystemMetric(aHwnd, SM_CXCURSOR);
+  int h = GetScaledSystemMetric(aHwnd, SM_CYCURSOR);
+
+  int x = (rect.right - w) / 2;
+  int y = (rect.bottom - h) / 2;
+
+  ::DrawIconEx(aDc, x, y, (HICON) ::LoadCursor(nullptr, IDC_CROSS), w, h, 0,
+               nullptr, DI_NORMAL);
+}
+
 static
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -110,7 +174,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
       ReleaseCapture();
       lastTarget = nullptr;
       Highlight(target); // Target was highlighted, turn it off
-      SendMessage(hwnd, WM_CLOSE, 0, 0);
+      // Don't kill ourselves unless the mouse had moved outside our hwnd
+      if (target == hwnd) {
+        target = nullptr;
+      } else {
+        SendMessage(hwnd, WM_CLOSE, 0, 0);
+      }
       break;
     case WM_MOUSEMOVE:
       if (GetCapture() == hwnd) {
@@ -131,13 +200,41 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_NCDESTROY:
       breakMsgLoop = true;
       break;
+    case WM_PAINT: {
+      bool remote = ::GetSystemMetrics(SM_REMOTESESSION);
+      PAINTSTRUCT ps;
+      HDC dc = ::BeginPaint(hwnd, &ps);
+      HDC paintDc = dc;
+      HPAINTBUFFER buffer = nullptr;
+      if (!remote) {
+        buffer = ::BeginBufferedPaint(dc, &ps.rcPaint, BPBF_TOPDOWNDIB,
+                                      nullptr, &paintDc);
+      }
+      if (ps.fErase) {
+        Erase(paintDc, ps.rcPaint);
+      }
+      PaintCrossHairs(hwnd, paintDc);
+      if (!remote && buffer) {
+        ::EndBufferedPaint(buffer, TRUE);
+      }
+      ::EndPaint(hwnd, &ps);
+      return 0;
+    }
+    case WM_ERASEBKGND:
+      return 0;
+    case WM_DPICHANGED: {
+      // Not using lParam here because it gives us weird dimensions; let's
+      // just compute new width and height based on hwnd
+      RECT newRect = ComputeWindowPos(hwnd);
+      ::SetWindowPos(hwnd, nullptr, 0, 0, newRect.right,
+                     newRect.bottom, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+      return 0;
+    }
     default:
       break;
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
-
-static const WCHAR sClassName[] = L"ASPKWindowSelector";
 
 namespace aspk {
 
@@ -152,18 +249,20 @@ SelectWindow()
   wc.hInstance = hInst;
   wc.hCursor = LoadCursor(NULL, IDC_ARROW);
   wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-  wc.lpszClassName = sClassName;
+  wc.lpszClassName = kClassName;
 
   if (!RegisterClassW(&wc)) {
     return nullptr;
   }
 
-  HWND hwnd = CreateWindowW(sClassName, L"Window Selector",
-                            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL,
-                            NULL, hInst, nullptr);
+  RECT initialWindowPos = GetInitialWindowPos();
+
+  HWND hwnd = CreateWindowW(kClassName, L"Window Selector",
+                            WS_OVERLAPPEDWINDOW, initialWindowPos.left,
+                            initialWindowPos.top, initialWindowPos.right,
+                            initialWindowPos.bottom, NULL, NULL, hInst, nullptr);
   if (!hwnd) {
-    UnregisterClassW(sClassName, hInst);
+    UnregisterClassW(kClassName, hInst);
     return nullptr;
   }
   ShowWindow(hwnd, SW_SHOWNORMAL);
@@ -179,7 +278,7 @@ SelectWindow()
     }
   }
 
-  UnregisterClassW(sClassName, hInst);
+  UnregisterClassW(kClassName, hInst);
 
   return target;
 }

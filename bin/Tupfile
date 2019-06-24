@@ -1,4 +1,4 @@
 .gitignore
-WIN32LIBS = advapi32.lib delayimp.lib gdi32.lib ole32.lib oleacc.lib rpcrt4.lib user32.lib shlwapi.lib
+WIN32LIBS = advapi32.lib delayimp.lib gdi32.lib ole32.lib oleacc.lib rpcrt4.lib user32.lib shlwapi.lib uxtheme.lib
 
 : ../obj/*.obj | ../obj/*.pdb |> cl -Zi -MD %f $(WIN32LIBS) -Fd%O.pdb -Fe%o -link && mt -manifest ../src/compatibility.manifest -outputresource:%o;#1 |> a11ytest.exe | %O.pdb %O.ilk

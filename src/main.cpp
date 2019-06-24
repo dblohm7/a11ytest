@@ -47,6 +47,55 @@ struct KernelHandleDeleter {
 
 using UniqueKernelHandle = unique_ptr<void, KernelHandleDeleter>;
 
+static wstring GetExePathForWindow(HWND aHwnd) {
+  DWORD pid;
+  ::GetWindowThreadProcessId(aHwnd, &pid);
+
+  UniqueKernelHandle proc(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                        FALSE, pid));
+  if (!proc.get()) {
+    return wstring();
+  }
+
+  WCHAR exeName[MAX_PATH + 1] = {};
+  DWORD len = ArrayLength(exeName);
+  if (!::QueryFullProcessImageNameW(proc.get(), 0, exeName, &len)) {
+    return wstring();
+  }
+
+  return wstring(exeName, len);
+}
+
+static wstring GetExeLeafForWindow(HWND aHwnd) {
+  wstring path(GetExePathForWindow(aHwnd));
+
+  WCHAR leaf[_MAX_FNAME] = {};
+  if (_wsplitpath_s(path.c_str(), nullptr, 0, nullptr, 0, leaf,
+                    ArrayLength(leaf), nullptr, 0)) {
+    return wstring();
+  }
+
+  return wstring(leaf);
+}
+
+static wstring GetExeDirForWindow(HWND aHwnd) {
+  wstring path(GetExePathForWindow(aHwnd));
+
+  wchar_t drive[_MAX_DRIVE] = {};
+  wchar_t dir[_MAX_DIR] = {};
+  if (_wsplitpath_s(path.c_str(), drive, ArrayLength(drive), dir,
+                    ArrayLength(dir), nullptr, 0, nullptr, 0)) {
+    return wstring();
+  }
+
+  wchar_t result[MAX_PATH + 1] = {};
+  if (_wmakepath_s(result, drive, dir, nullptr, nullptr)) {
+    return wstring();
+  }
+
+  return wstring(result);
+}
+
 static BOOL CALLBACK OnTopLevelWindow(HWND aHwnd, LPARAM aContext) {
   if (!::IsWindowVisible(aHwnd)) {
     // Don't care about hidden windows
@@ -64,28 +113,9 @@ static BOOL CALLBACK OnTopLevelWindow(HWND aHwnd, LPARAM aContext) {
     return TRUE;
   }
 
-  DWORD pid;
-  ::GetWindowThreadProcessId(aHwnd, &pid);
+  wstring leaf(GetExeLeafForWindow(aHwnd));
 
-  UniqueKernelHandle proc(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
-                                        FALSE, pid));
-  if (!proc.get()) {
-    return TRUE;
-  }
-
-  WCHAR exeName[MAX_PATH + 1] = {};
-  DWORD len = ArrayLength(exeName);
-  if (!::QueryFullProcessImageNameW(proc.get(), 0, exeName, &len)) {
-    return TRUE;
-  }
-
-  WCHAR leaf[_MAX_FNAME] = {};
-  if (_wsplitpath_s(exeName, nullptr, 0, nullptr, 0, leaf, ArrayLength(leaf),
-                   nullptr, 0)) {
-    return TRUE;
-  }
-
-  if (!wcsicmp(leaf, L"firefox")) {
+  if (!wcsicmp(leaf.c_str(), L"firefox")) {
     auto firefoxHwnd = reinterpret_cast<HWND*>(aContext);
     if (*firefoxHwnd) {
       // We've already seen a firefox handle. We will need user interaction to
@@ -167,6 +197,7 @@ GetIA2(IServiceProviderPtr& aSvcProv)
                                       IID_IAccessible2, (void**)&acc2);
   if (FAILED(hr)) {
     printf("QueryService(IID_IAccessible2) failed with hr 0x%08X\n", hr);
+    printf("\t(Is accessibility disabled in prefs?)\n");
     return nullptr;
   }
   log("IAccessible2: 0x%p\n", acc2.GetInterfacePtr());
@@ -904,7 +935,7 @@ static bool ParseCommandLine(int argc, wchar_t* argv[], HWND& aOutHwnd,
 
   for (int i = 0; i < argc; ++i) {
     if (!wcscmp(argv[i], kSwitchHwnd) && (i + 1) < argc) {
-      aOutHwnd = (HWND) wcstoul(argv[i + 1], nullptr, 0);
+      aOutHwnd = (HWND) static_cast<uintptr_t>(wcstoul(argv[i + 1], nullptr, 0));
       ++i;
     }
 
@@ -957,10 +988,18 @@ extern "C" int wmain(int argc, wchar_t* argv[])
     return 1;
   }
 
-  // TODO ASK: Use our HWND to resolve the firefox path, and then get ia2marshal from there!
-  auto proxyDll(mozilla::mscom::RegisterProxyDll(L"ia2marshal.dll"));
+  wstring ia2path(GetExeDirForWindow(hwnd));
+  if (ia2path.empty()) {
+    printf("Could not find exe dir for the selected hwnd!\n");
+    return 1;
+  }
+
+  ia2path += L"ia2marshal.dll";
+  printf("Registering \"%S\"\n", ia2path.c_str());
+
+  auto proxyDll(mozilla::mscom::RegisterProxyDll(ia2path.c_str()));
   if (!proxyDll) {
-    printf("NULL proxyDll!\n");
+    printf("NULL proxyDll! Are you sure that the test bitness matches the proxy DLL?\n");
     return 1;
   }
 

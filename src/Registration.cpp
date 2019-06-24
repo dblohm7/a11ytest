@@ -38,7 +38,7 @@ namespace mozilla {
 namespace mscom {
 
 unique_ptr<RegisteredProxy>
-RegisterProxyDll(const wchar_t* aLeafName)
+RegisterProxyDll(const wchar_t* aDllName)
 {
   HMODULE thisModule = nullptr;
   if (!GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
@@ -47,21 +47,28 @@ RegisterProxyDll(const wchar_t* aLeafName)
                          &thisModule)) {
     return nullptr;
   }
-  wchar_t modulePathBuf[MAX_PATH + 1] = {0};
-  DWORD fileNameResult = GetModuleFileName(thisModule, modulePathBuf,
-                                   ArrayLength(modulePathBuf));
-  if (!fileNameResult || (fileNameResult == ArrayLength(modulePathBuf) &&
-        ::GetLastError() == ERROR_INSUFFICIENT_BUFFER)) {
-    return nullptr;
-  }
-  if (!PathRemoveFileSpec(modulePathBuf)) {
-    return nullptr;
-  }
-  if (!PathAppend(modulePathBuf, aLeafName)) {
-    return nullptr;
+
+  HMODULE proxyDll = nullptr;
+
+  if (::PathIsRelativeW(aDllName)) {
+    wchar_t modulePathBuf[MAX_PATH + 1] = {0};
+    DWORD fileNameResult = GetModuleFileName(thisModule, modulePathBuf,
+                                     ArrayLength(modulePathBuf));
+    if (!fileNameResult || (fileNameResult == ArrayLength(modulePathBuf) &&
+          ::GetLastError() == ERROR_INSUFFICIENT_BUFFER)) {
+      return nullptr;
+    }
+    if (!PathRemoveFileSpec(modulePathBuf)) {
+      return nullptr;
+    }
+    if (!PathAppend(modulePathBuf, aDllName)) {
+      return nullptr;
+    }
+    proxyDll = LoadLibrary(modulePathBuf);
+  } else {
+    proxyDll = LoadLibrary(aDllName);
   }
 
-  HMODULE proxyDll = LoadLibrary(modulePathBuf);
   if (!proxyDll) {
     return nullptr;
   }

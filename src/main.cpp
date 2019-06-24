@@ -14,7 +14,11 @@
 #include <stdio.h>
 using namespace std;
 
-#define PRINT_UNIQUE_ID
+#if defined(DEBUG_LOG)
+#define log printf
+#else
+#define log(fmt, ...)
+#endif
 
 DEFINE_GUID(IID_IAccessible2, 0xE89F726E,0xC4F4,0x4c19,0xBB,0x19,0xB6,0x47,0xD7,0xFA,0x84,0x78);
 _COM_SMARTPTR_TYPEDEF(IAccessible2, IID_IAccessible2);
@@ -22,7 +26,7 @@ _COM_SMARTPTR_TYPEDEF(IAccessible2, IID_IAccessible2);
 #define HRCHECK(msg) \
   if (FAILED(hr)) { \
     printf("%s, HRESULT == 0x%08X", msg, hr); \
-    return 1; \
+    return false; \
   }
 
 IAccessiblePtr
@@ -61,8 +65,8 @@ GetServiceProvider(IAccessiblePtr& aAcc)
   if (FAILED(hr)) {
     return nullptr;
   }
-  // printf("IAccessible: 0x%p\n", aAcc.GetInterfacePtr());
-  // printf("IServiceProvider: 0x%p\n", svcProv.GetInterfacePtr());
+  log("IAccessible: 0x%p\n", aAcc.GetInterfacePtr());
+  log("IServiceProvider: 0x%p\n", svcProv.GetInterfacePtr());
   return svcProv;
 }
 
@@ -76,7 +80,7 @@ GetIA2(IServiceProviderPtr& aSvcProv)
     printf("QueryService(IID_IAccessible2) failed with hr 0x%08X\n", hr);
     return nullptr;
   }
-  // printf("IAccessible2: 0x%p\n", acc2.GetInterfacePtr());
+  log("IAccessible2: 0x%p\n", acc2.GetInterfacePtr());
   return acc2;
 }
 
@@ -137,7 +141,6 @@ GetParentUniqueId(IAccessiblePtr& aAcc, long& aOutUniqueId)
   return GetUniqueId(parent, aOutUniqueId);
 }
 
-#if 0
 void
 DumpAccInfo(const long aIndex, IAccessiblePtr& aAcc)
 {
@@ -170,68 +173,6 @@ DumpAccInfo(const long aIndex, IAccessiblePtr& aAcc)
   printf("Child %d: 0x%p, \"%S\", parent uniqueid is %d, role is 0x%X\n", aIndex,
           aAcc.GetInterfacePtr(), bstr, parentUniqueId, varRole.lVal);
 }
-#endif
-
-#if 0
-void
-DumpAccInfo(IAccessiblePtr& aAcc)
-{
-  printf("BEGIN DumpAccInfo for 0x%p\n", aAcc.GetInterfacePtr());
-  HRESULT hr;
-
-  printf("BEGIN GetParentUniqueId for 0x%p\n", aAcc.GetInterfacePtr());
-  long parentUniqueId;
-  hr = GetParentUniqueId(aAcc, parentUniqueId);
-  bool parentUidValid = SUCCEEDED(hr);
-  printf("END GetParentUniqueId for 0x%p\n", aAcc.GetInterfacePtr());
-
-  printf("BEGIN GetUniqueId for 0x%p\n", aAcc.GetInterfacePtr());
-  long uniqueId;
-  hr = GetUniqueId(aAcc, uniqueId);
-  bool uidValid = SUCCEEDED(hr);
-  printf("END GetUniqueId for 0x%p\n", aAcc.GetInterfacePtr());
-
-  VARIANT varChildSelf;
-  VariantInit(&varChildSelf);
-  varChildSelf.vt = VT_I4;
-  varChildSelf.lVal = CHILDID_SELF;
-
-  BSTR bstr;
-  hr = aAcc->get_accName(varChildSelf, &bstr);
-  if (FAILED(hr)) {
-    printf("get_accName\n");
-    return;
-  }
-
-  VARIANT varRole;
-  hr = aAcc->get_accRole(varChildSelf, &varRole);
-  if (FAILED(hr)) {
-    printf("get_accRole\n");
-    return;
-  }
-  if (varRole.vt != VT_I4) {
-    printf("varRole.vt == VT_I4\n");
-    return;
-  }
-
-  IAccessiblePtr parent = GetParent(aAcc);
-
-  printf("0x%p, parent is 0x%p, \"%S\", role is 0x%X",
-         aAcc.GetInterfacePtr(), parent.GetInterfacePtr(), bstr, varRole.lVal);
-  if (uidValid) {
-    printf(", uniqueId is %d", uniqueId);
-  }
-  if (parentUidValid) {
-    printf(", parentUniqueId is %d", parentUniqueId);
-  }
-  printf("\n");
-  printf("END DumpAccInfo for 0x%p\n", aAcc.GetInterfacePtr());
-}
-#endif
-
-#define log(fmt, ...)
-
-#if 0
 
 void
 DumpAccInfo(IAccessiblePtr& aAcc)
@@ -263,6 +204,7 @@ DumpAccInfo(IAccessiblePtr& aAcc)
            acc2.GetInterfacePtr(), hr);
   }
   log("END GetUniqueId for 0x%p\n", aAcc.GetInterfacePtr());
+
   HWND hwnd;
   if (acc2) {
     hr = acc2->get_windowHandle(&hwnd);
@@ -308,45 +250,6 @@ DumpAccInfo(IAccessiblePtr& aAcc)
   }
   printf("\n");
   log("END DumpAccInfo for 0x%p\n", aAcc.GetInterfacePtr());
-}
-
-#endif
-
-void
-DumpAccInfo(IAccessiblePtr& aAcc)
-{
-  IAccessible2Ptr acc2 = GetIA2(aAcc);
-  IAccessiblePtr accBack;
-  if (acc2) {
-    // accBack = GetAcc(acc2);
-  }
-  printf("BEGIN\n");
-  printf("IAccessible: 0x%p\n", aAcc.GetInterfacePtr());
-  BSTR bstr;
-  const VARIANT kVarChildSelf = {VT_I4};
-  if (SUCCEEDED(aAcc->get_accName(kVarChildSelf, &bstr))) {
-    printf("Name: \"%S\"\n", bstr);
-    SysFreeString(bstr);
-  }
-  VARIANT varValue;
-  if (SUCCEEDED(aAcc->get_accRole(kVarChildSelf, &varValue))) {
-    printf("Role: 0x%x\n", varValue.lVal);
-  }
-  if (SUCCEEDED(aAcc->get_accState(kVarChildSelf, &varValue))) {
-    printf("State: 0x%x\n", varValue.lVal);
-  }
-  if (acc2) {
-    printf("IAccessible2: 0x%p\n", acc2.GetInterfacePtr());
-    long childId;
-    HRESULT hr = acc2->get_uniqueID(&childId);
-    if (SUCCEEDED(hr)) {
-      printf("Child ID: 0x%08X\n", childId);
-    }
-  }
-  if (accBack) {
-    printf("Back to IAccessible: 0x%p\n", accBack.GetInterfacePtr());
-  }
-  printf("END\n");
 }
 
 IAccessiblePtr
@@ -402,7 +305,6 @@ DoDfs(IAccessiblePtr& aAcc)
       while (nextAcc) {
         q.push_front(nextAcc);
         nextAcc = GetNextSibling(nextAcc);
-        // nextAcc = nullptr;
       }
       ++curLevel;
     }
@@ -538,12 +440,11 @@ QueryAccInfo(HWND aHwnd, IAccessiblePtr aAcc)
     return 1;
   }
 
-#if 0
-  // Test code
+#if defined(TEST_GET_RELATIONS)
   IAccessibleRelation* relations[64] = {};
   long count = 0;
   hr = acc2->get_relations(64, &relations[0], &count);
-#endif
+#endif  // defined(TEST_GET_RELATIONS)
   return 0;
 }
 
@@ -568,18 +469,19 @@ FindDocumentAndDump(HWND aHwnd)
     printf("AccessibleObjectFromWindow failed! You suck!\n");
     return 1;
   }
-  // printf("OBJID_CLIENT IAccessible: 0x%p\n", acc.GetInterfacePtr());
+  log("OBJID_CLIENT IAccessible: 0x%p\n", acc.GetInterfacePtr());
 
   IAccessiblePtr doc = DoDfsFindRole(root, ROLE_SYSTEM_DOCUMENT);
   if (!doc) {
     printf("Couldn't find document! You suck!\n");
     return 1;
   }
-  // printf("Document: 0x%p\n", doc.GetInterfacePtr());
+  log("Document: 0x%p\n", doc.GetInterfacePtr());
 
   IAccessible2Ptr doc2 = GetIA2(doc);
 
-  // queries: role, state, ia2 state, keyboard shortcut, ia2 attrs, name, desc, locale, child count, value
+  // The following queries are those commonly issued by NVDA:
+  // role, state, ia2 state, keyboard shortcut, ia2 attrs, name, desc, locale, child count, value
   // let's also add uniqueid and hwnd
   hr = doc2->get_accRole(kChildIdSelf, &varVal);
   HRCHECK("get_accRole");
@@ -672,79 +574,35 @@ DoDfsVisible(HWND aHwnd, IAccessiblePtr& aAcc)
   printf("Total execution time: %g ms\n", diff);
 }
 
-int main(int argc, char* argv[])
-{
-  mozilla::STARegion sta;
+static bool SpeedAll(HWND aHwnd) {
+  int result = FindDocumentAndDump(aHwnd);
+  return !result;
+}
 
-  auto proxyDll(mozilla::mscom::RegisterProxyDll(L"ia2marshal.dll"));
-  if (!proxyDll) {
-    printf("NULL proxyDll!\n");
-    return 1;
-  }
+static bool SpeedVisible(HWND aHwnd, IAccessiblePtr& aAcc) {
+  DoDfsVisible(aHwnd, aAcc);
+  return true;
+}
 
-  WCHAR caption[256] = {0};
-  WCHAR className[256] = {0};
-  HWND hwnd = aspk::SelectWindow();
-  GetWindowText(hwnd, caption, ArrayLength(caption));
-  GetClassName(hwnd, className, ArrayLength(className));
-  printf("HWND: %p \"%S\" \"%S\"\n", hwnd, className, caption);
-  if (!hwnd) {
-    printf("You suck!\n");
-    return 1;
-  }
-
-  IAccessiblePtr acc;
-  HRESULT hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, (void**)&acc);
-  if (FAILED(hr)) {
-    printf("You suck!\n");
-    return 1;
-  }
-  DoDfsVisible(hwnd, acc);
-
-#if 0
-  // This is the speed test
-  int result = FindDocumentAndDump(hwnd);
-  if (result) {
-    return result;
-  }
-#endif
-
-#if 0
-  // Alright, let's try to get an interface...
-  IAccessiblePtr acc;
-  HRESULT hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, (void**)&acc);
-  if (FAILED(hr)) {
-    printf("You suck!\n");
-    return 1;
-  }
-  printf("OBJID_CLIENT IAccessible: 0x%p\n", acc.GetInterfacePtr());
-
-  IAccessiblePtr doc = DoDfsFindRole(acc, ROLE_SYSTEM_DOCUMENT);
+static bool FindDocument(IAccessiblePtr& aAcc) {
+  IAccessiblePtr doc = DoDfsFindRole(aAcc, ROLE_SYSTEM_DOCUMENT);
   if (!doc) {
     printf("Couldn't find document! You suck!\n");
-    return 1;
+    return false;
   }
 
   printf("Document: 0x%p\n", doc.GetInterfacePtr());
-#endif
+  return true;
+}
 
-#if 0
-  DumpAccInfo(acc);
-#endif
+static bool DumpTopLevelAcc(IAccessiblePtr& aAcc) {
+  DumpAccInfo(aAcc);
+  return true;
+}
 
-#if 0
-  IServiceProviderPtr svcProv;
-  hr = acc->QueryInterface(IID_IServiceProvider, (void**)&svcProv);
-  if (FAILED(hr)) {
-    printf("QI failed IID_IServiceProvider\n");
-    return 1;
-  }
-  printf("IServiceProvider: 0x%p\n", svcProv.GetInterfacePtr());
-#endif
-
-#if 0
+static bool EnumTopLevelChildren(IAccessiblePtr& aAcc) {
   IEnumVARIANTPtr enumChildren;
-  hr = acc->QueryInterface(IID_IEnumVARIANT, (void**)&enumChildren);
+  HRESULT hr = aAcc->QueryInterface(IID_IEnumVARIANT, (void**)&enumChildren);
   HRCHECK("QueryInterface IID_IEnumVARIANT");
 
   hr = enumChildren->Reset();
@@ -757,96 +615,26 @@ int main(int argc, char* argv[])
 
   if (vChildren.vt != VT_DISPATCH) {
     printf("vChildren: Bad VARIANT type, got 0x%04hx instead!\n", vChildren.vt);
-    return 1;
+    return false;
   }
 
   IAccessiblePtr child;
   hr = vChildren.pdispVal->QueryInterface(IID_IAccessible, (void**)&child);
   if (hr != S_OK) {
     printf("vChildren->QueryInterface(IID_IAccessible)\n");
-    return 1;
-  }
-#endif
-
-#if 0
-  IAccessiblePtr child(GetFirstChild(acc));
-  if (!child) {
-    printf("GetFirstChild(acc)\n");
-    return 1;
-  }
-#endif
-
-#if 0
-  IAccessiblePtr root(GetParent(child));
-  if (!root) {
-    printf("GetParent(child)\n");
-    return 1;
-  }
-  printf("Root IAccessible: 0x%p\n", acc.GetInterfacePtr());
-
-  IServiceProviderPtr svcProv2(GetServiceProvider(root));
-  if (!svcProv2) {
-    printf("Get svcProv2\n");
-    return 1;
-  }
-  printf("IServiceProvider 2: 0x%p\n", svcProv2.GetInterfacePtr());
-
-  long uid;
-  GetUniqueId(acc, uid);
-  long uid2;
-  GetUniqueId(root, uid2);
-
-  long uid2a;
-  hr = GetParentUniqueId(child, uid2a);
-  HRCHECK("GetParentUniqueId(child)");
-#endif
-
-#if 0
-  long rootUniqueId;
-  hr = GetUniqueId(acc, rootUniqueId);
-  HRCHECK("GetUniqueId(acc)");
-  printf("Root accessible's IA2 unique ID is %d\n", rootUniqueId);
-#endif
-
-#if 0
-  IAccessible2Ptr acc2;
-  hr = svcProv->QueryService(IID_IAccessible2, IID_IAccessible2, (void**)&acc2);
-  if (FAILED(hr)) {
-    printf("QueryService failed IID_IAccessible2! HRESULT: 0x%08X\n", hr);
-    return 1;
+    return false;
   }
 
-  long rootUniqueId;
-  hr = acc2->get_uniqueID(&rootUniqueId);
-  HRCHECK("acc2->get_uniqueID");
-  printf("Root accessible's IA2 unique ID is %d\n", rootUniqueId);
+  return true;
+}
 
-  // Let's try to get a document
-  long childCount = 0;
-  hr = acc->get_accChildCount(&childCount);
-  if (FAILED(hr)) {
-    printf("get_accChildCount on root failed! HRESULT: 0x%08X\n", hr);
-    return 1;
-  }
-
-  printf("Root accessible has %d children:\n\n", childCount);
-#endif
-
-  // DoDfs(acc);
-
-  // DumpAccInfo(acc);
-#if 0
-  IAccessiblePtr firstChild = GetFirstChild(acc);
-  DumpAccInfo(firstChild);
-#endif
-
-#if 0
+static bool NavigateTopLevelChildren(IAccessiblePtr& aAcc) {
   VARIANT varStart, varOut;
   VariantInit(&varStart);
   varStart.vt = VT_I4;
   varStart.lVal = CHILDID_SELF;
 
-  hr = acc->accNavigate(NAVDIR_FIRSTCHILD, varStart, &varOut);
+  HRESULT hr = aAcc->accNavigate(NAVDIR_FIRSTCHILD, varStart, &varOut);
   HRCHECK("acc->accNavigate");
 
   IAccessiblePtr loopAcc;
@@ -869,7 +657,153 @@ int main(int argc, char* argv[])
     HRCHECK("varOut.pdispVal->QI failed");
     loopAcc = qiAcc;
   }
-#endif
+
+  return true;
+}
+
+static bool ParentChildNavigation(IAccessiblePtr& aAcc) {
+  IAccessiblePtr child(GetFirstChild(aAcc));
+  if (!child) {
+    printf("GetFirstChild(acc)\n");
+    return false;
+  }
+
+  IAccessiblePtr root(GetParent(child));
+  if (!root) {
+    printf("GetParent(child)\n");
+    return false;
+  }
+
+  printf("Root IAccessible: 0x%p\n", aAcc.GetInterfacePtr());
+
+  IServiceProviderPtr svcProv2(GetServiceProvider(root));
+  if (!svcProv2) {
+    printf("Get svcProv2\n");
+    return false;
+  }
+  printf("IServiceProvider 2: 0x%p\n", svcProv2.GetInterfacePtr());
+
+  long uid;
+  GetUniqueId(aAcc, uid);
+  long uid2;
+  GetUniqueId(root, uid2);
+
+  long uid2a;
+  HRESULT hr = GetParentUniqueId(child, uid2a);
+  HRCHECK("GetParentUniqueId(child)");
+  return true;
+}
+
+static bool RootAcccessibleUniqueId(IAccessiblePtr& aAcc) {
+  long rootUniqueId;
+  HRESULT hr = GetUniqueId(aAcc, rootUniqueId);
+  HRCHECK("GetUniqueId(acc)");
+  printf("Root accessible's IA2 unique ID is %d\n", rootUniqueId);
+  return true;
+}
+
+static bool DumpFirstChild(IAccessiblePtr& aAcc) {
+  IAccessiblePtr firstChild = GetFirstChild(aAcc);
+  DumpAccInfo(firstChild);
+  return true;
+}
+
+static bool DumpEntireTree(IAccessiblePtr& aAcc) {
+  DoDfs(aAcc);
+  return true;
+}
+
+static bool CountTopLevelChildren(IAccessiblePtr& aAcc) {
+  IServiceProviderPtr svcProv;
+  HRESULT hr = aAcc->QueryInterface(IID_IServiceProvider, (void**)&svcProv);
+  HRCHECK("QI(IServiceProvider)");
+  printf("IServiceProvider: 0x%p\n", svcProv.GetInterfacePtr());
+
+  IAccessible2Ptr acc2;
+  hr = svcProv->QueryService(IID_IAccessible2, IID_IAccessible2, (void**)&acc2);
+  HRCHECK("svcProv->QueryService");
+
+  long rootUniqueId;
+  hr = acc2->get_uniqueID(&rootUniqueId);
+  HRCHECK("acc2->get_uniqueID");
+  printf("Root accessible's IA2 unique ID is %d\n", rootUniqueId);
+
+  // Let's try to get a document
+  long childCount = 0;
+  hr = aAcc->get_accChildCount(&childCount);
+  HRCHECK("get_accChildCount(root)");
+
+  printf("Root accessible has %d children:\n\n", childCount);
+  return true;
+}
+
+enum A11yTests {
+  NONE = 0,
+  DUMP_TOP_LEVEL_ACCESSIBLE = 1,
+  DUMP_FIRST_CHILD = 2,
+  ENUM_TOP_LEVEL_CHILDREN = 4,
+  NAVIGATE_TOP_LEVEL_CHILDREN = 8,
+  COUNT_TOP_LEVEL_CHILDREN = 0x10,
+  PARENT_CHILD_NAVIGATION = 0x20,
+  ROOT_ACCESSIBLE_UNIQUE_ID = 0x40,
+  FIND_DOCUMENT = 0x80,
+  SPEED_ALL = 0x100,
+  SPEED_VISIBLE = 0x200,
+  DUMP_ENTIRE_TREE = 0x400
+};
+
+#define RUN_CMD(flag, fn) \
+  do { \
+    if ((testsToRun & flag) && !fn) { \
+      printf("Command %s failed, aborting\n", #flag); \
+      fflush(stdout); \
+      return 1; \
+    } \
+  } while(false)
+
+int main(int argc, char* argv[])
+{
+  uint32_t testsToRun = DUMP_ENTIRE_TREE;
+
+  mozilla::STARegion sta;
+
+  auto proxyDll(mozilla::mscom::RegisterProxyDll(L"ia2marshal.dll"));
+  if (!proxyDll) {
+    printf("NULL proxyDll!\n");
+    return 1;
+  }
+
+  WCHAR caption[256] = {0};
+  WCHAR className[256] = {0};
+  HWND hwnd = aspk::SelectWindow();
+  GetWindowText(hwnd, caption, ArrayLength(caption));
+  GetClassName(hwnd, className, ArrayLength(className));
+  printf("HWND: %p \"%S\" \"%S\"\n", hwnd, className, caption);
+  if (!hwnd) {
+    printf("You suck!\n");
+    return 1;
+  }
+
+  // Obtain an interface from the HWND
+  IAccessiblePtr topLevelAcc;
+  HRESULT hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible,
+                                          (void**)&topLevelAcc);
+  if (FAILED(hr)) {
+    printf("You suck!\n");
+    return 1;
+  }
+  printf("OBJID_CLIENT IAccessible: 0x%p\n", topLevelAcc.GetInterfacePtr());
+
+  RUN_CMD(DUMP_TOP_LEVEL_ACCESSIBLE, DumpTopLevelAcc(topLevelAcc));
+  RUN_CMD(FIND_DOCUMENT, FindDocument(topLevelAcc));
+  RUN_CMD(SPEED_ALL, SpeedAll(hwnd));
+  RUN_CMD(SPEED_VISIBLE, SpeedVisible(hwnd, topLevelAcc));
+  RUN_CMD(ENUM_TOP_LEVEL_CHILDREN, EnumTopLevelChildren(topLevelAcc));
+  RUN_CMD(PARENT_CHILD_NAVIGATION, ParentChildNavigation(topLevelAcc));
+  RUN_CMD(NAVIGATE_TOP_LEVEL_CHILDREN, NavigateTopLevelChildren(topLevelAcc));
+  RUN_CMD(DUMP_ENTIRE_TREE, DumpEntireTree(topLevelAcc));
+  RUN_CMD(COUNT_TOP_LEVEL_CHILDREN, CountTopLevelChildren(topLevelAcc));
+
   fflush(stdout);
   return 0;
 }

@@ -48,6 +48,11 @@ struct KernelHandleDeleter {
 using UniqueKernelHandle = unique_ptr<void, KernelHandleDeleter>;
 
 static BOOL CALLBACK OnTopLevelWindow(HWND aHwnd, LPARAM aContext) {
+  if (!::IsWindowVisible(aHwnd)) {
+    // Don't care about hidden windows
+    return TRUE;
+  }
+
   WCHAR className[256] = {};
   int classNameLen = ::GetClassNameW(aHwnd, className, ArrayLength(className));
   if (!classNameLen) {
@@ -930,7 +935,7 @@ static bool ParseCommandLine(int argc, wchar_t* argv[], HWND& aOutHwnd,
 extern "C" int wmain(int argc, wchar_t* argv[])
 {
   HWND hwnd = nullptr;
-  uint32_t testsToRun = DUMP_ENTIRE_TREE;
+  uint32_t testsToRun = NONE;
   if (!ParseCommandLine(argc, argv, hwnd, testsToRun)) {
     Usage(argv[0]);
     return 1;

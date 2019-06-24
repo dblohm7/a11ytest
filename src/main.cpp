@@ -10,8 +10,14 @@
 #include <comdef.h>
 
 #include <deque>
+#include <memory>
 #include <string>
+#include <vector>
+
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 using namespace std;
 
 #if defined(DEBUG_LOG)
@@ -28,6 +34,84 @@ _COM_SMARTPTR_TYPEDEF(IAccessible2, IID_IAccessible2);
     printf("%s, HRESULT == 0x%08X", msg, hr); \
     return false; \
   }
+
+struct KernelHandleDeleter {
+  void operator()(HANDLE aHandle) {
+    if (aHandle == INVALID_HANDLE_VALUE) {
+      return;
+    }
+
+    ::CloseHandle(aHandle);
+  }
+};
+
+using UniqueKernelHandle = unique_ptr<void, KernelHandleDeleter>;
+
+static BOOL CALLBACK OnTopLevelWindow(HWND aHwnd, LPARAM aContext) {
+  WCHAR className[256] = {};
+  int classNameLen = ::GetClassNameW(aHwnd, className, ArrayLength(className));
+  if (!classNameLen) {
+    return TRUE;
+  }
+
+  if (wcscmp(className, L"MozillaWindowClass")) {
+    // Not a window that we're interested in. Continue enumeration.
+    return TRUE;
+  }
+
+  DWORD pid;
+  ::GetWindowThreadProcessId(aHwnd, &pid);
+
+  UniqueKernelHandle proc(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
+                                        FALSE, pid));
+  if (!proc.get()) {
+    return TRUE;
+  }
+
+  WCHAR exeName[MAX_PATH + 1] = {};
+  DWORD len = ArrayLength(exeName);
+  if (!::QueryFullProcessImageNameW(proc.get(), 0, exeName, &len)) {
+    return TRUE;
+  }
+
+  WCHAR leaf[_MAX_FNAME] = {};
+  if (_wsplitpath_s(exeName, nullptr, 0, nullptr, 0, leaf, ArrayLength(leaf),
+                   nullptr, 0)) {
+    return TRUE;
+  }
+
+  if (!wcsicmp(leaf, L"firefox")) {
+    auto firefoxHwnd = reinterpret_cast<HWND*>(aContext);
+    if (*firefoxHwnd) {
+      // We've already seen a firefox handle. We will need user interaction to
+      // choose the right one to use for testing.
+
+      // Clear the handle, thus indicating that we can't use it for testing
+      *firefoxHwnd = nullptr;
+      // Stop enumerating
+      return FALSE;
+    }
+
+    *firefoxHwnd = aHwnd;
+  }
+
+  return TRUE;
+}
+
+static HWND GetHwnd() {
+  HWND result = nullptr;
+
+  // First, enumerate all "MozillaWindowClass" windows that belong to firefox
+  // (as opposed to thunderbird or seamonkey, etc)
+  if (::EnumWindows(&OnTopLevelWindow, reinterpret_cast<LPARAM>(&result)) &&
+      result) {
+    // If there is only one window, we can use that.
+    return result;
+  }
+
+  // Otherwise we need to delegate to the window selector.
+  return aspk::SelectWindow();
+}
 
 IAccessiblePtr
 GetParent(IAccessiblePtr& aAcc)
@@ -749,8 +833,90 @@ enum A11yTests {
   FIND_DOCUMENT = 0x80,
   SPEED_ALL = 0x100,
   SPEED_VISIBLE = 0x200,
-  DUMP_ENTIRE_TREE = 0x400
+  DUMP_ENTIRE_TREE = 0x400,
+  RUN_ALL = UINT32_MAX,
+  // XXX: Update this when changing the enum!
+  NUM_A11Y_TESTS = 13
 };
+
+static const wchar_t kSwitchHwnd[] = L"-hwnd";
+
+static const A11yTests kTests[] = {
+  NONE,
+  DUMP_TOP_LEVEL_ACCESSIBLE,
+  DUMP_FIRST_CHILD,
+  ENUM_TOP_LEVEL_CHILDREN,
+  NAVIGATE_TOP_LEVEL_CHILDREN,
+  COUNT_TOP_LEVEL_CHILDREN,
+  PARENT_CHILD_NAVIGATION,
+  ROOT_ACCESSIBLE_UNIQUE_ID,
+  FIND_DOCUMENT,
+  SPEED_ALL,
+  SPEED_VISIBLE,
+  DUMP_ENTIRE_TREE,
+  RUN_ALL,
+};
+
+static const wchar_t* kTestNames[] = {
+  L"none",
+  L"dump-top-level",
+  L"dump-first-child",
+  L"enum-top-level-children",
+  L"navigate-top-level-children",
+  L"count-top-level-children",
+  L"parent-child-navigation",
+  L"root-accessible-unique-id",
+  L"find-document",
+  L"speed-all",
+  L"speed-visible",
+  L"dump-entire-tree",
+  L"all"
+};
+
+static_assert(ArrayLength(kTests) == ArrayLength(kTestNames) &&
+              ArrayLength(kTests) == NUM_A11Y_TESTS,
+              "You changed the enum! Update kTests and kTestNames!");
+
+static void Usage(wchar_t* aArgv0) {
+  printf("Usage: %S [-hwnd <hwnd>] <command(s)>\n\n", aArgv0);
+  printf("If -hwnd is not specified, we will try to find the Firefox window.\n");
+  printf("If we cannot find the window, or if there are multiple windows,\n");
+  printf("a window selector will be displayed to the user to select the window\n");
+  printf("using the mouse.\n\n");
+  printf("<command> may be one or more of the following (separated by spaces):\n\n");
+
+  // Start at 1 to skip "none"
+  for (size_t i = 1; i < ArrayLength(kTestNames); ++i) {
+    printf("\t%S\n", kTestNames[i]);
+  }
+  printf("\n");
+}
+
+static bool ParseCommandLine(int argc, wchar_t* argv[], HWND& aOutHwnd,
+                             uint32_t& aOutTestsToRun) {
+  aOutHwnd = nullptr;
+  aOutTestsToRun = NONE;
+
+  for (int i = 0; i < argc; ++i) {
+    if (!wcscmp(argv[i], kSwitchHwnd) && (i + 1) < argc) {
+      aOutHwnd = (HWND) wcstoul(argv[i + 1], nullptr, 0);
+      ++i;
+    }
+
+    for (int j = 0; j < ArrayLength(kTestNames); ++j) {
+      if (!wcscmp(argv[i], kTestNames[j])) {
+        aOutTestsToRun |= kTests[j];
+        break;
+      }
+    }
+  }
+
+  if (aOutTestsToRun == NONE) {
+    return false;
+  }
+
+  return true;
+}
 
 #define RUN_CMD(flag, fn) \
   do { \
@@ -761,26 +927,35 @@ enum A11yTests {
     } \
   } while(false)
 
-int main(int argc, char* argv[])
+extern "C" int wmain(int argc, wchar_t* argv[])
 {
+  HWND hwnd = nullptr;
   uint32_t testsToRun = DUMP_ENTIRE_TREE;
+  if (!ParseCommandLine(argc, argv, hwnd, testsToRun)) {
+    Usage(argv[0]);
+    return 1;
+  }
 
   mozilla::STARegion sta;
 
-  auto proxyDll(mozilla::mscom::RegisterProxyDll(L"ia2marshal.dll"));
-  if (!proxyDll) {
-    printf("NULL proxyDll!\n");
-    return 1;
+  if (!hwnd) {
+    hwnd = GetHwnd();
   }
 
   WCHAR caption[256] = {0};
   WCHAR className[256] = {0};
-  HWND hwnd = aspk::SelectWindow();
   GetWindowText(hwnd, caption, ArrayLength(caption));
   GetClassName(hwnd, className, ArrayLength(className));
   printf("HWND: %p \"%S\" \"%S\"\n", hwnd, className, caption);
   if (!hwnd) {
     printf("You suck!\n");
+    return 1;
+  }
+
+  // TODO ASK: Use our HWND to resolve the firefox path, and then get ia2marshal from there!
+  auto proxyDll(mozilla::mscom::RegisterProxyDll(L"ia2marshal.dll"));
+  if (!proxyDll) {
+    printf("NULL proxyDll!\n");
     return 1;
   }
 

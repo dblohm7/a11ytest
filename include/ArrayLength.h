@@ -2,7 +2,7 @@
 #define __ARRAYLENGTH_H
 
 template<typename T, size_t N>
-inline /* constexpr */ size_t ArrayLength(T (&)[N])
+inline constexpr size_t ArrayLength(T (&)[N])
 {
   return N;
 }

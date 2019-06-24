@@ -876,6 +876,7 @@ enum A11yTests {
 };
 
 static const wchar_t kSwitchHwnd[] = L"-hwnd";
+static const wchar_t kSwitchForceSelector[] = L"-s";
 
 static const A11yTests kTests[] = {
   NONE,
@@ -928,6 +929,8 @@ static void Usage(wchar_t* aArgv0) {
   printf("\n");
 }
 
+static bool gForceWindowSelector;
+
 static bool ParseCommandLine(int argc, wchar_t* argv[], HWND& aOutHwnd,
                              uint32_t& aOutTestsToRun) {
   aOutHwnd = nullptr;
@@ -937,6 +940,12 @@ static bool ParseCommandLine(int argc, wchar_t* argv[], HWND& aOutHwnd,
     if (!wcscmp(argv[i], kSwitchHwnd) && (i + 1) < argc) {
       aOutHwnd = (HWND) static_cast<uintptr_t>(wcstoul(argv[i + 1], nullptr, 0));
       ++i;
+      continue;
+    }
+
+    if (!wcscmp(argv[i], kSwitchForceSelector)) {
+      gForceWindowSelector = true;
+      continue;
     }
 
     for (int j = 0; j < ArrayLength(kTestNames); ++j) {
@@ -974,7 +983,9 @@ extern "C" int wmain(int argc, wchar_t* argv[])
 
   mozilla::STARegion sta;
 
-  if (!hwnd) {
+  if (gForceWindowSelector) {
+    hwnd = aspk::SelectWindow();
+  } else if (!hwnd) {
     hwnd = GetHwnd();
   }
 

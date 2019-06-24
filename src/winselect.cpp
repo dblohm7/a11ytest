@@ -1,12 +1,72 @@
 #include <windows.h>
 #include <windowsx.h>
+#include <ShellScalingApi.h>
+
+#include <algorithm>
+#include <memory>
+#include <type_traits>
+#include <utility>
 
 #include "winselect.h"
+
+#define DECLARE_UNIQUE_HANDLE_TYPE(name, handle_type, deleter_type) \
+  using name = std::unique_ptr<std::remove_pointer<handle_type>::type, deleter_type>
+#if defined(min)
+#undef min
+#endif  // defined(min)
+#if defined(max)
+#undef max
+#endif  // defined(max)
 
 static HWND target = NULL;
 static HWND lastTarget = NULL;
 static HCURSOR prevCursor = NULL;
 static bool breakMsgLoop = false;
+
+struct ModuleDeleter {
+  using pointer = HMODULE;
+
+  void operator()(pointer aPtr) {
+    ::FreeLibrary(aPtr);
+  }
+};
+
+DECLARE_UNIQUE_HANDLE_TYPE(UniqueModule, HMODULE, ModuleDeleter);
+using GetDpiForMonitorPtr = LRESULT (WINAPI*)(HMONITOR,MONITOR_DPI_TYPE,UINT*,UINT*);
+
+static const UINT kDefaultDpi = 96U;
+
+static UINT GetEffectiveDpi(HWND aHwnd) {
+  static UniqueModule shcore(::LoadLibraryW(L"shcore.dll"));
+  if (!shcore) {
+    return kDefaultDpi;
+  }
+
+  static auto pGetDpiForMonitor =
+    reinterpret_cast<GetDpiForMonitorPtr>(::GetProcAddress(shcore.get(),
+                                                           "GetDpiForMonitor"));
+  if (!pGetDpiForMonitor) {
+    return kDefaultDpi;
+  }
+
+  HMONITOR monitor = ::MonitorFromWindow(aHwnd, MONITOR_DEFAULTTONEAREST);
+
+  UINT dpiX, dpiY;
+  if (FAILED(pGetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
+    return kDefaultDpi;
+  }
+
+  return std::max(dpiX, dpiY);
+}
+
+static int GetBorderWidth(HWND aHwnd) {
+  UINT dpi = GetEffectiveDpi(aHwnd);
+  return ::GetSystemMetrics(SM_CXBORDER) * dpi / kDefaultDpi;
+}
+
+static int ScaleWidth(HWND aHwnd, int aWidth) {
+  return aWidth * GetEffectiveDpi(aHwnd) / kDefaultDpi;
+}
 
 static void
 Highlight(HWND hwnd)
@@ -15,14 +75,11 @@ Highlight(HWND hwnd)
     return;
   }
 
-  int cxScreen = GetSystemMetrics(SM_CXSCREEN);
-  int cyScreen = GetSystemMetrics(SM_CYSCREEN);
-  int cxBorder = GetSystemMetrics(SM_CXBORDER);
-  int cxFrame = GetSystemMetrics(SM_CXFRAME);
-  int cyFrame = GetSystemMetrics(SM_CYFRAME);
+  int cxBorder = GetBorderWidth(hwnd);
 
   RECT rect;
   GetWindowRect(hwnd, &rect);
+
   HDC hdc = GetWindowDC(hwnd);
   SetROP2(hdc, R2_NOT);
   HPEN pen = CreatePen(PS_INSIDEFRAME, 3 * cxBorder, RGB(0, 0, 0));

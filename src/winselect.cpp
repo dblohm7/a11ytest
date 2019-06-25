@@ -10,13 +10,16 @@
 #include <utility>
 
 #include "ArrayLength.h"
+#include "DynamicallyLinkedFunctionPtr.h"
 #include "winselect.h"
 
-#define DECLARE_UNIQUE_HANDLE_TYPE(name, handle_type, deleter_type) \
-  using name = std::unique_ptr<std::remove_pointer<handle_type>::type, deleter_type>
+#define DECLARE_UNIQUE_HANDLE_TYPE(name, deleter_type) \
+  using name = std::unique_ptr<std::remove_pointer<deleter_type::pointer>::type, deleter_type>
+
 #if defined(min)
 #undef min
 #endif  // defined(min)
+
 #if defined(max)
 #undef max
 #endif  // defined(max)
@@ -38,14 +41,6 @@ struct GdiObjectDeleter {
   }
 };
 
-struct ModuleDeleter {
-  using pointer = HMODULE;
-
-  void operator()(pointer aPtr) {
-    ::FreeLibrary(aPtr);
-  }
-};
-
 struct ThemeDeleter {
   using pointer = HTHEME;
 
@@ -54,23 +49,14 @@ struct ThemeDeleter {
   }
 };
 
-DECLARE_UNIQUE_HANDLE_TYPE(UniqueGdiObject, HGDIOBJ, GdiObjectDeleter);
-DECLARE_UNIQUE_HANDLE_TYPE(UniqueModule, HMODULE, ModuleDeleter);
-DECLARE_UNIQUE_HANDLE_TYPE(UniqueTheme, HTHEME, ThemeDeleter);
-
-using GetDpiForMonitorPtr = LRESULT (WINAPI*)(HMONITOR,MONITOR_DPI_TYPE,UINT*,UINT*);
+DECLARE_UNIQUE_HANDLE_TYPE(UniqueGdiObject, GdiObjectDeleter);
+DECLARE_UNIQUE_HANDLE_TYPE(UniqueTheme, ThemeDeleter);
 
 static const UINT kDefaultDpi = 96U;
 
 static UINT GetEffectiveDpi(HMONITOR aMonitor) {
-  static UniqueModule shcore(::LoadLibraryW(L"shcore.dll"));
-  if (!shcore) {
-    return kDefaultDpi;
-  }
-
-  static auto pGetDpiForMonitor =
-    reinterpret_cast<GetDpiForMonitorPtr>(::GetProcAddress(shcore.get(),
-                                                           "GetDpiForMonitor"));
+  static const mozilla::DynamicallyLinkedFunctionPtr<decltype(&::GetDpiForMonitor)>
+    pGetDpiForMonitor(L"shcore.dll", "GetDpiForMonitor");
   if (!pGetDpiForMonitor) {
     return kDefaultDpi;
   }
@@ -86,6 +72,11 @@ static UINT GetEffectiveDpi(HMONITOR aMonitor) {
 static UINT GetEffectiveDpi(HWND aHwnd) {
   HMONITOR monitor = ::MonitorFromWindow(aHwnd, MONITOR_DEFAULTTONEAREST);
   return GetEffectiveDpi(monitor);
+}
+
+static UINT GetEffectiveDpi(UINT aDpi) {
+  // Identity
+  return aDpi;
 }
 
 template <typename HandleT>
@@ -111,7 +102,8 @@ static const wchar_t kTextMsg[] =
 
 template <typename FnT>
 static bool WithThemedFont(HWND aHwnd, HDC aDc, FnT aFunc) {
-  UniqueTheme theme(::OpenThemeData(aHwnd, L"CompositedWindow::Window"));
+  const wchar_t kThemeClass[] = L"CompositedWindow::Window";
+  UniqueTheme theme(::OpenThemeData(aHwnd, kThemeClass));
 
   LOGFONT logFont;
   if (FAILED(::GetThemeSysFont(theme.get(), TMT_MSGBOXFONT, &logFont))) {
@@ -120,9 +112,8 @@ static bool WithThemedFont(HWND aHwnd, HDC aDc, FnT aFunc) {
 
   // GetThemeSysFont is using GetDeviceCaps(LOGPIXELSY) for its DPI scaling,
   // so it is not multi-monitor aware.
-  UINT effectiveDpi = GetEffectiveDpi(aHwnd);
   if (::GetMapMode(aDc) == MM_TEXT && logFont.lfHeight < 0 &&
-      effectiveDpi != ::GetDeviceCaps(aDc, LOGPIXELSY)) {
+      GetEffectiveDpi(aHwnd) != ::GetDeviceCaps(aDc, LOGPIXELSY)) {
     logFont.lfHeight = ScaleWidth(aHwnd, logFont.lfHeight);
   }
 
@@ -194,11 +185,6 @@ static HMONITOR GetDefaultMonitor() {
   return ::MonitorFromPoint(zeros, MONITOR_DEFAULTTOPRIMARY);
 }
 
-static RECT GetInitialWindowPos() {
-
-  return ComputeWindowPos(GetDefaultMonitor());
-}
-
 static void
 Highlight(HWND hwnd)
 {
@@ -244,8 +230,9 @@ static void Erase(HDC aDc, const RECT& aRect) {
     bgBrush = GetSysColorBrush(((intptr_t)bgBrush) - 1);
   }
 
-  ::SelectObject(aDc, bgBrush);
+  HGDIOBJ prev = ::SelectObject(aDc, bgBrush);
   ::FillRect(aDc, &aRect, bgBrush);
+  ::SelectObject(aDc, prev);
 }
 
 static void PaintCrossHairs(HWND aHwnd, HDC aDc) {
@@ -275,8 +262,10 @@ static void PaintCrossHairs(HWND aHwnd, HDC aDc) {
   int x = (rect.right - w) / 2;
   int y = (rect.bottom - h) / 2;
 
-  ::DrawIconEx(aDc, x, y, (HICON) ::LoadCursor(nullptr, IDC_CROSS), w, h, 0,
-               nullptr, DI_NORMAL);
+  HANDLE cursor = ::LoadImage(nullptr, IDC_CROSS, IMAGE_CURSOR, 0, 0, LR_SHARED);
+  if (cursor) {
+    ::DrawIconEx(aDc, x, y, (HICON) cursor, w, h, 0, nullptr, DI_NORMAL);
+  }
 }
 
 static
@@ -348,10 +337,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_ERASEBKGND:
       return 0;
     case WM_DPICHANGED: {
-      // Not using lParam here because it gives us weird dimensions; let's
-      // just compute new width and height based on hwnd
-      ReviseWindowSize(hwnd);
-      InvalidateRect(hwnd, nullptr, TRUE);
+      auto newRect = reinterpret_cast<RECT*>(lparam);
+      ::MoveWindow(hwnd, newRect->left, newRect->top,
+                   newRect->right - newRect->left,
+                   newRect->bottom - newRect->top, TRUE);
       return 0;
     }
     default:

@@ -2,12 +2,14 @@
 #include <windowsx.h>
 #include <ShellScalingApi.h>
 #include <uxtheme.h>
+#include <vssym32.h>
 
 #include <algorithm>
 #include <memory>
 #include <type_traits>
 #include <utility>
 
+#include "ArrayLength.h"
 #include "winselect.h"
 
 #define DECLARE_UNIQUE_HANDLE_TYPE(name, handle_type, deleter_type) \
@@ -28,6 +30,14 @@ static bool breakMsgLoop = false;
 
 static const int kDefaultWindowWidth = 273;
 
+struct GdiObjectDeleter {
+  using pointer = HGDIOBJ;
+
+  void operator()(pointer aPtr) {
+    ::DeleteObject(aPtr);
+  }
+};
+
 struct ModuleDeleter {
   using pointer = HMODULE;
 
@@ -36,7 +46,18 @@ struct ModuleDeleter {
   }
 };
 
+struct ThemeDeleter {
+  using pointer = HTHEME;
+
+  void operator()(pointer aPtr) {
+    ::CloseThemeData(aPtr);
+  }
+};
+
+DECLARE_UNIQUE_HANDLE_TYPE(UniqueGdiObject, HGDIOBJ, GdiObjectDeleter);
 DECLARE_UNIQUE_HANDLE_TYPE(UniqueModule, HMODULE, ModuleDeleter);
+DECLARE_UNIQUE_HANDLE_TYPE(UniqueTheme, HTHEME, ThemeDeleter);
+
 using GetDpiForMonitorPtr = LRESULT (WINAPI*)(HMONITOR,MONITOR_DPI_TYPE,UINT*,UINT*);
 
 static const UINT kDefaultDpi = 96U;
@@ -69,7 +90,7 @@ static UINT GetEffectiveDpi(HWND aHwnd) {
 
 template <typename HandleT>
 static int ScaleWidth(HandleT aHandle, int aWidth) {
-  return aWidth * GetEffectiveDpi(aHandle) / kDefaultDpi;
+  return ::MulDiv(aWidth, GetEffectiveDpi(aHandle), kDefaultDpi);
 }
 
 static int GetScaledSystemMetric(HWND aHwnd, int aSmIndex) {
@@ -85,15 +106,97 @@ static RECT ComputeWindowPos(HMONITOR aMonitor) {
   return result;
 }
 
+static const wchar_t kTextMsg[] =
+  L"Click and drag the crosshairs over the window you want to select:";
+
+template <typename FnT>
+static bool WithThemedFont(HWND aHwnd, HDC aDc, FnT aFunc) {
+  UniqueTheme theme(::OpenThemeData(aHwnd, L"CompositedWindow::Window"));
+
+  LOGFONT logFont;
+  if (FAILED(::GetThemeSysFont(theme.get(), TMT_MSGBOXFONT, &logFont))) {
+    return false;
+  }
+
+  // GetThemeSysFont is using GetDeviceCaps(LOGPIXELSY) for its DPI scaling,
+  // so it is not multi-monitor aware.
+  UINT effectiveDpi = GetEffectiveDpi(aHwnd);
+  if (::GetMapMode(aDc) == MM_TEXT && logFont.lfHeight < 0 &&
+      effectiveDpi != ::GetDeviceCaps(aDc, LOGPIXELSY)) {
+    logFont.lfHeight = ScaleWidth(aHwnd, logFont.lfHeight);
+  }
+
+  UniqueGdiObject font(::CreateFontIndirect(&logFont));
+  if (!font) {
+    return false;
+  }
+
+  HGDIOBJ prev = ::SelectObject(aDc, font.get());
+  bool ok = aFunc(aHwnd, aDc, theme.get());
+  ::SelectObject(aDc, prev);
+  return ok;
+}
+
 static RECT ComputeWindowPos(HWND aHwnd) {
-  return ComputeWindowPos(::MonitorFromWindow(aHwnd, MONITOR_DEFAULTTONEAREST));
+  RECT defaultPos = ComputeWindowPos(::MonitorFromWindow(aHwnd,
+                                                         MONITOR_DEFAULTTONEAREST));
+
+  auto getExtents = [&defaultPos](HWND aHwnd, HDC aDc, HTHEME aTheme) -> bool {
+    RECT boundingRect;
+    if (!::GetClientRect(aHwnd, &boundingRect)) {
+      return false;
+    }
+
+    RECT extents;
+    HRESULT hr = ::GetThemeTextExtent(aTheme, aDc, 0, 0, kTextMsg,
+                                      ArrayLength(kTextMsg) - 1,
+                                      DT_CENTER | DT_TOP | DT_SINGLELINE,
+                                      &boundingRect, &extents);
+    if (FAILED(hr)) {
+      return false;
+    }
+
+    // extents are for client, so we need to adjust for window
+    WINDOWINFO wi;
+    if (!::GetWindowInfo(aHwnd, &wi)) {
+      // Just use the defaults if we fail
+      return true;
+    }
+
+    if (!::AdjustWindowRectEx(&extents, wi.dwStyle, FALSE, wi.dwExStyle)) {
+      // Just use the defaults if we fail
+      return true;
+    }
+
+    // We need to adjust extents.right to be based from 0, 0
+    extents.right -= extents.left;
+
+    // Also add some padding
+    extents.right += 2 * GetScaledSystemMetric(aHwnd, SM_CYCAPTION);
+
+    int w = std::max(defaultPos.right, extents.right);
+    defaultPos.right = w;
+    defaultPos.bottom = w;
+    return true;
+  };
+
+  HDC dc = ::GetDC(aHwnd);
+
+  WithThemedFont(aHwnd, dc, getExtents);
+
+  ::ReleaseDC(aHwnd, dc);
+
+  return defaultPos;
+}
+
+static HMONITOR GetDefaultMonitor() {
+  const POINT zeros = {};
+  return ::MonitorFromPoint(zeros, MONITOR_DEFAULTTOPRIMARY);
 }
 
 static RECT GetInitialWindowPos() {
-  const POINT zeros = {};
-  HMONITOR defaultMonitor = ::MonitorFromPoint(zeros, MONITOR_DEFAULTTOPRIMARY);
 
-  return ComputeWindowPos(defaultMonitor);
+  return ComputeWindowPos(GetDefaultMonitor());
 }
 
 static void
@@ -124,6 +227,12 @@ Highlight(HWND hwnd)
   InvalidateRect(hwnd, &rect, TRUE);
 }
 
+static void ReviseWindowSize(HWND aHwnd) {
+  RECT newRect = ComputeWindowPos(aHwnd);
+  ::SetWindowPos(aHwnd, nullptr, 0, 0, newRect.right,
+                 newRect.bottom, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+}
+
 static void Erase(HDC aDc, const RECT& aRect) {
   WNDCLASSEX clsEx = { sizeof(clsEx) };
   GetClassInfoEx((HINSTANCE) ::GetModuleHandle(nullptr), kClassName, &clsEx);
@@ -140,13 +249,23 @@ static void Erase(HDC aDc, const RECT& aRect) {
 }
 
 static void PaintCrossHairs(HWND aHwnd, HDC aDc) {
-  if (prevCursor) {
-    // We don't paint the cursor during mouse capture
+  RECT rect;
+  if (!::GetClientRect(aHwnd, &rect)) {
     return;
   }
 
-  RECT rect;
-  if (!::GetClientRect(aHwnd, &rect)) {
+  WithThemedFont(aHwnd, aDc, [&rect](HWND aHwnd, HDC aDc, HTHEME aTheme) -> bool {
+    DTTOPTS dttOpts = { sizeof(DTTOPTS) };
+    dttOpts.dwFlags = DTT_COMPOSITED;
+    HRESULT hr = ::DrawThemeTextEx(aTheme, aDc, 0, 0, kTextMsg,
+                                   ArrayLength(kTextMsg) - 1,
+                                   DT_CENTER | DT_SINGLELINE | DT_TOP |
+                                     DT_END_ELLIPSIS, &rect, &dttOpts);
+    return SUCCEEDED(hr);
+  });
+
+  if (prevCursor) {
+    // We don't paint the cursor during mouse capture
     return;
   }
 
@@ -164,9 +283,14 @@ static
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
   switch (msg) {
+    case WM_CREATE: {
+      ReviseWindowSize(hwnd);
+      return 0;
+    }
     case WM_LBUTTONDOWN:
       prevCursor = SetCursor(LoadCursor(NULL, IDC_CROSS));
       SetCapture(hwnd);
+      InvalidateRect(hwnd, nullptr, TRUE);
       break;
     case WM_LBUTTONUP:
       SetCursor(prevCursor);
@@ -177,6 +301,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
       // Don't kill ourselves unless the mouse had moved outside our hwnd
       if (target == hwnd) {
         target = nullptr;
+        InvalidateRect(hwnd, nullptr, TRUE);
       } else {
         SendMessage(hwnd, WM_CLOSE, 0, 0);
       }
@@ -225,9 +350,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_DPICHANGED: {
       // Not using lParam here because it gives us weird dimensions; let's
       // just compute new width and height based on hwnd
-      RECT newRect = ComputeWindowPos(hwnd);
-      ::SetWindowPos(hwnd, nullptr, 0, 0, newRect.right,
-                     newRect.bottom, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+      ReviseWindowSize(hwnd);
+      InvalidateRect(hwnd, nullptr, TRUE);
       return 0;
     }
     default:
@@ -255,12 +379,12 @@ SelectWindow()
     return nullptr;
   }
 
-  RECT initialWindowPos = GetInitialWindowPos();
+  bool buffered = SUCCEEDED(::BufferedPaintInit());
 
   HWND hwnd = CreateWindowW(kClassName, L"Window Selector",
-                            WS_OVERLAPPEDWINDOW, initialWindowPos.left,
-                            initialWindowPos.top, initialWindowPos.right,
-                            initialWindowPos.bottom, NULL, NULL, hInst, nullptr);
+                            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL,
+                            NULL, hInst, nullptr);
   if (!hwnd) {
     UnregisterClassW(kClassName, hInst);
     return nullptr;
@@ -276,6 +400,10 @@ SelectWindow()
       TranslateMessage(&msg);
       DispatchMessage(&msg);
     }
+  }
+
+  if (buffered) {
+    BufferedPaintUnInit();
   }
 
   UnregisterClassW(kClassName, hInst);

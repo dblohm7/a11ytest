@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# tup
+.tup
+
+# vim swp files
+*.swp

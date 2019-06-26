@@ -21,18 +21,19 @@
 using namespace std;
 
 #if defined(DEBUG_LOG)
-#define log printf
+#  define log printf
 #else
-#define log(fmt, ...)
+#  define log(fmt, ...)
 #endif
 
-DEFINE_GUID(IID_IAccessible2, 0xE89F726E,0xC4F4,0x4c19,0xBB,0x19,0xB6,0x47,0xD7,0xFA,0x84,0x78);
+DEFINE_GUID(IID_IAccessible2, 0xE89F726E, 0xC4F4, 0x4c19, 0xBB, 0x19, 0xB6,
+            0x47, 0xD7, 0xFA, 0x84, 0x78);
 _COM_SMARTPTR_TYPEDEF(IAccessible2, IID_IAccessible2);
 
-#define HRCHECK(msg) \
-  if (FAILED(hr)) { \
+#define HRCHECK(msg)                          \
+  if (FAILED(hr)) {                           \
     printf("%s, HRESULT == 0x%08X", msg, hr); \
-    return false; \
+    return false;                             \
   }
 
 struct KernelHandleDeleter {
@@ -51,8 +52,8 @@ static wstring GetExePathForWindow(HWND aHwnd) {
   DWORD pid;
   ::GetWindowThreadProcessId(aHwnd, &pid);
 
-  UniqueKernelHandle proc(::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,
-                                        FALSE, pid));
+  UniqueKernelHandle proc(
+      ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
   if (!proc.get()) {
     return wstring();
   }
@@ -148,9 +149,7 @@ static HWND GetHwnd() {
   return aspk::SelectWindow();
 }
 
-IAccessiblePtr
-GetParent(IAccessiblePtr& aAcc)
-{
+IAccessiblePtr GetParent(IAccessiblePtr& aAcc) {
   IAccessiblePtr result;
 
   IDispatchPtr disp;
@@ -165,9 +164,7 @@ GetParent(IAccessiblePtr& aAcc)
   return result;
 }
 
-IAccessiblePtr
-GetAcc(IAccessible2Ptr& aAcc2)
-{
+IAccessiblePtr GetAcc(IAccessible2Ptr& aAcc2) {
   IAccessiblePtr acc;
   HRESULT hr = aAcc2->QueryInterface(IID_IAccessible, (void**)&acc);
   if (FAILED(hr)) {
@@ -176,9 +173,7 @@ GetAcc(IAccessible2Ptr& aAcc2)
   return acc;
 }
 
-IServiceProviderPtr
-GetServiceProvider(IAccessiblePtr& aAcc)
-{
+IServiceProviderPtr GetServiceProvider(IAccessiblePtr& aAcc) {
   IServiceProviderPtr svcProv;
   HRESULT hr = aAcc->QueryInterface(IID_IServiceProvider, (void**)&svcProv);
   if (FAILED(hr)) {
@@ -189,12 +184,10 @@ GetServiceProvider(IAccessiblePtr& aAcc)
   return svcProv;
 }
 
-IAccessible2Ptr
-GetIA2(IServiceProviderPtr& aSvcProv)
-{
+IAccessible2Ptr GetIA2(IServiceProviderPtr& aSvcProv) {
   IAccessible2Ptr acc2;
-  HRESULT hr = aSvcProv->QueryService(IID_IAccessible2,
-                                      IID_IAccessible2, (void**)&acc2);
+  HRESULT hr =
+      aSvcProv->QueryService(IID_IAccessible2, IID_IAccessible2, (void**)&acc2);
   if (FAILED(hr)) {
     printf("QueryService(IID_IAccessible2) failed with hr 0x%08X\n", hr);
     printf("\t(Is accessibility disabled in prefs?)\n");
@@ -204,9 +197,7 @@ GetIA2(IServiceProviderPtr& aSvcProv)
   return acc2;
 }
 
-IAccessible2Ptr
-GetIA2(IAccessiblePtr& aAcc)
-{
+IAccessible2Ptr GetIA2(IAccessiblePtr& aAcc) {
   if (!aAcc) {
     return nullptr;
   }
@@ -219,8 +210,7 @@ GetIA2(IAccessiblePtr& aAcc)
 }
 
 HRESULT
-GetUniqueId(IAccessiblePtr& aAcc, long& aOutUniqueId)
-{
+GetUniqueId(IAccessiblePtr& aAcc, long& aOutUniqueId) {
   IAccessible2Ptr acc2(GetIA2(aAcc));
   if (!acc2) {
     return E_FAIL;
@@ -234,8 +224,7 @@ GetUniqueId(IAccessiblePtr& aAcc, long& aOutUniqueId)
 }
 
 HRESULT
-GetWindowHandle(IAccessiblePtr& aAcc, HWND& aOutHwnd)
-{
+GetWindowHandle(IAccessiblePtr& aAcc, HWND& aOutHwnd) {
   IAccessible2Ptr acc2(GetIA2(aAcc));
   if (!acc2) {
     return E_FAIL;
@@ -249,8 +238,7 @@ GetWindowHandle(IAccessiblePtr& aAcc, HWND& aOutHwnd)
 }
 
 HRESULT
-GetParentUniqueId(IAccessiblePtr& aAcc, long& aOutUniqueId)
-{
+GetParentUniqueId(IAccessiblePtr& aAcc, long& aOutUniqueId) {
   if (!aAcc) {
     return E_INVALIDARG;
   }
@@ -261,9 +249,7 @@ GetParentUniqueId(IAccessiblePtr& aAcc, long& aOutUniqueId)
   return GetUniqueId(parent, aOutUniqueId);
 }
 
-void
-DumpAccInfo(const long aIndex, IAccessiblePtr& aAcc)
-{
+void DumpAccInfo(const long aIndex, IAccessiblePtr& aAcc) {
   long parentUniqueId;
   HRESULT hr = GetParentUniqueId(aAcc, parentUniqueId);
   if (FAILED(hr)) {
@@ -290,13 +276,11 @@ DumpAccInfo(const long aIndex, IAccessiblePtr& aAcc)
     return;
   }
 
-  printf("Child %d: 0x%p, \"%S\", parent uniqueid is %d, role is 0x%X\n", aIndex,
-          aAcc.GetInterfacePtr(), bstr, parentUniqueId, varRole.lVal);
+  printf("Child %d: 0x%p, \"%S\", parent uniqueid is %d, role is 0x%X\n",
+         aIndex, aAcc.GetInterfacePtr(), bstr, parentUniqueId, varRole.lVal);
 }
 
-void
-DumpAccInfo(IAccessiblePtr& aAcc)
-{
+void DumpAccInfo(IAccessiblePtr& aAcc) {
   IAccessiblePtr parent = GetParent(aAcc);
   IAccessible2Ptr parent2 = GetIA2(parent);
   IAccessible2Ptr acc2 = GetIA2(aAcc);
@@ -359,9 +343,8 @@ DumpAccInfo(IAccessiblePtr& aAcc)
     return;
   }
 
-
-  printf("0x%p, parent is 0x%p, \"%S\", role is 0x%X",
-         aAcc.GetInterfacePtr(), parent.GetInterfacePtr(), bstr, varRole.lVal);
+  printf("0x%p, parent is 0x%p, \"%S\", role is 0x%X", aAcc.GetInterfacePtr(),
+         parent.GetInterfacePtr(), bstr, varRole.lVal);
   if (uidValid) {
     printf(", uniqueId is %d", uniqueId);
   }
@@ -372,9 +355,7 @@ DumpAccInfo(IAccessiblePtr& aAcc)
   log("END DumpAccInfo for 0x%p\n", aAcc.GetInterfacePtr());
 }
 
-IAccessiblePtr
-Navigate(IAccessiblePtr& aAcc, long aNavDir)
-{
+IAccessiblePtr Navigate(IAccessiblePtr& aAcc, long aNavDir) {
   VARIANT varStart, varOut;
   VariantInit(&varStart);
   varStart.vt = VT_I4;
@@ -395,21 +376,15 @@ Navigate(IAccessiblePtr& aAcc, long aNavDir)
   return result;
 }
 
-IAccessiblePtr
-GetFirstChild(IAccessiblePtr& aAcc)
-{
+IAccessiblePtr GetFirstChild(IAccessiblePtr& aAcc) {
   return Navigate(aAcc, NAVDIR_FIRSTCHILD);
 }
 
-IAccessiblePtr
-GetNextSibling(IAccessiblePtr& aAcc)
-{
+IAccessiblePtr GetNextSibling(IAccessiblePtr& aAcc) {
   return Navigate(aAcc, NAVDIR_NEXT);
 }
 
-void
-DoDfs(IAccessiblePtr& aAcc)
-{
+void DoDfs(IAccessiblePtr& aAcc) {
   const unsigned int kMaxLevel = 0xFFFFFFFF;
   unsigned int curLevel = 0;
 
@@ -431,15 +406,11 @@ DoDfs(IAccessiblePtr& aAcc)
   }
 }
 
-static bool
-IsVisibleState(const long aState)
-{
+static bool IsVisibleState(const long aState) {
   return (aState & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_OFFSCREEN)) == 0;
 }
 
-static bool
-IsVisible(IAccessiblePtr aAcc)
-{
+static bool IsVisible(IAccessiblePtr aAcc) {
   const VARIANT kChildIdSelf = {VT_I4};
   VARIANT varState;
   HRESULT hr = aAcc->get_accState(kChildIdSelf, &varState);
@@ -449,9 +420,7 @@ IsVisible(IAccessiblePtr aAcc)
   return false;
 }
 
-IAccessiblePtr
-DoDfsFindRole(IAccessiblePtr& aAcc, const long aRole)
-{
+IAccessiblePtr DoDfsFindRole(IAccessiblePtr& aAcc, const long aRole) {
   const unsigned int kMaxLevel = 0xFFFFFFFF;
   unsigned int curLevel = 0;
   const VARIANT kChildIdSelf = {VT_I4};
@@ -483,9 +452,7 @@ DoDfsFindRole(IAccessiblePtr& aAcc, const long aRole)
   return nullptr;
 }
 
-char*
-GetSource(long uniqueId)
-{
+char* GetSource(long uniqueId) {
   if (uniqueId >= 0) {
     return "other";
   }
@@ -496,9 +463,7 @@ GetSource(long uniqueId)
   return "chrome";
 }
 
-int
-QueryAccInfo(HWND aHwnd, IAccessiblePtr aAcc)
-{
+int QueryAccInfo(HWND aHwnd, IAccessiblePtr aAcc) {
   const VARIANT kChildIdSelf = {VT_I4};
   VARIANT varVal;
   BSTR bstr;
@@ -509,8 +474,8 @@ QueryAccInfo(HWND aHwnd, IAccessiblePtr aAcc)
 
   IAccessible2Ptr acc2 = GetIA2(aAcc);
 
-  // queries: role, state, ia2 state, keyboard shortcut, ia2 attrs, name, desc, locale, child count, value
-  // let's also add uniqueid and hwnd
+  // queries: role, state, ia2 state, keyboard shortcut, ia2 attrs, name, desc,
+  // locale, child count, value let's also add uniqueid and hwnd
   HRESULT hr = acc2->get_accRole(kChildIdSelf, &varVal);
   HRCHECK("get_accRole");
   hr = acc2->get_accState(kChildIdSelf, &varVal);
@@ -568,9 +533,7 @@ QueryAccInfo(HWND aHwnd, IAccessiblePtr aAcc)
   return 0;
 }
 
-int
-FindDocumentAndDump(HWND aHwnd)
-{
+int FindDocumentAndDump(HWND aHwnd) {
   const VARIANT kChildIdSelf = {VT_I4};
   VARIANT varVal;
   LARGE_INTEGER start, end, freq;
@@ -601,8 +564,8 @@ FindDocumentAndDump(HWND aHwnd)
   IAccessible2Ptr doc2 = GetIA2(doc);
 
   // The following queries are those commonly issued by NVDA:
-  // role, state, ia2 state, keyboard shortcut, ia2 attrs, name, desc, locale, child count, value
-  // let's also add uniqueid and hwnd
+  // role, state, ia2 state, keyboard shortcut, ia2 attrs, name, desc, locale,
+  // child count, value let's also add uniqueid and hwnd
   hr = doc2->get_accRole(kChildIdSelf, &varVal);
   HRCHECK("get_accRole");
   hr = doc2->get_accState(kChildIdSelf, &varVal);
@@ -650,16 +613,16 @@ FindDocumentAndDump(HWND aHwnd)
   QueryPerformanceCounter(&end);
   QueryPerformanceFrequency(&freq);
 
-  double startMs = static_cast<double>(start.QuadPart * 1000) / static_cast<double>(freq.QuadPart);
-  double endMs = static_cast<double>(end.QuadPart * 1000) / static_cast<double>(freq.QuadPart);
+  double startMs = static_cast<double>(start.QuadPart * 1000) /
+                   static_cast<double>(freq.QuadPart);
+  double endMs = static_cast<double>(end.QuadPart * 1000) /
+                 static_cast<double>(freq.QuadPart);
   double diff = endMs - startMs;
   printf("Total execution time: %g ms\n", diff);
   return 0;
 }
 
-void
-DoDfsVisible(HWND aHwnd, IAccessiblePtr& aAcc)
-{
+void DoDfsVisible(HWND aHwnd, IAccessiblePtr& aAcc) {
   LARGE_INTEGER start, end, freq;
   QueryPerformanceCounter(&start);
 
@@ -688,8 +651,10 @@ DoDfsVisible(HWND aHwnd, IAccessiblePtr& aAcc)
   QueryPerformanceCounter(&end);
   QueryPerformanceFrequency(&freq);
 
-  double startMs = static_cast<double>(start.QuadPart * 1000) / static_cast<double>(freq.QuadPart);
-  double endMs = static_cast<double>(end.QuadPart * 1000) / static_cast<double>(freq.QuadPart);
+  double startMs = static_cast<double>(start.QuadPart * 1000) /
+                   static_cast<double>(freq.QuadPart);
+  double endMs = static_cast<double>(end.QuadPart * 1000) /
+                 static_cast<double>(freq.QuadPart);
   double diff = endMs - startMs;
   printf("Total execution time: %g ms\n", diff);
 }
@@ -879,48 +844,50 @@ static const wchar_t kSwitchHwnd[] = L"-hwnd";
 static const wchar_t kSwitchForceSelector[] = L"-s";
 
 static const A11yTests kTests[] = {
-  NONE,
-  DUMP_TOP_LEVEL_ACCESSIBLE,
-  DUMP_FIRST_CHILD,
-  ENUM_TOP_LEVEL_CHILDREN,
-  NAVIGATE_TOP_LEVEL_CHILDREN,
-  COUNT_TOP_LEVEL_CHILDREN,
-  PARENT_CHILD_NAVIGATION,
-  ROOT_ACCESSIBLE_UNIQUE_ID,
-  FIND_DOCUMENT,
-  SPEED_ALL,
-  SPEED_VISIBLE,
-  DUMP_ENTIRE_TREE,
-  RUN_ALL,
+    NONE,
+    DUMP_TOP_LEVEL_ACCESSIBLE,
+    DUMP_FIRST_CHILD,
+    ENUM_TOP_LEVEL_CHILDREN,
+    NAVIGATE_TOP_LEVEL_CHILDREN,
+    COUNT_TOP_LEVEL_CHILDREN,
+    PARENT_CHILD_NAVIGATION,
+    ROOT_ACCESSIBLE_UNIQUE_ID,
+    FIND_DOCUMENT,
+    SPEED_ALL,
+    SPEED_VISIBLE,
+    DUMP_ENTIRE_TREE,
+    RUN_ALL,
 };
 
-static const wchar_t* kTestNames[] = {
-  L"none",
-  L"dump-top-level",
-  L"dump-first-child",
-  L"enum-top-level-children",
-  L"navigate-top-level-children",
-  L"count-top-level-children",
-  L"parent-child-navigation",
-  L"root-accessible-unique-id",
-  L"find-document",
-  L"speed-all",
-  L"speed-visible",
-  L"dump-entire-tree",
-  L"all"
-};
+static const wchar_t* kTestNames[] = {L"none",
+                                      L"dump-top-level",
+                                      L"dump-first-child",
+                                      L"enum-top-level-children",
+                                      L"navigate-top-level-children",
+                                      L"count-top-level-children",
+                                      L"parent-child-navigation",
+                                      L"root-accessible-unique-id",
+                                      L"find-document",
+                                      L"speed-all",
+                                      L"speed-visible",
+                                      L"dump-entire-tree",
+                                      L"all"};
 
 static_assert(ArrayLength(kTests) == ArrayLength(kTestNames) &&
-              ArrayLength(kTests) == NUM_A11Y_TESTS,
+                  ArrayLength(kTests) == NUM_A11Y_TESTS,
               "You changed the enum! Update kTests and kTestNames!");
 
 static void Usage(wchar_t* aArgv0) {
   printf("Usage: %S [-hwnd <hwnd>] <command(s)>\n\n", aArgv0);
-  printf("If -hwnd is not specified, we will try to find the Firefox window.\n");
+  printf(
+      "If -hwnd is not specified, we will try to find the Firefox window.\n");
   printf("If we cannot find the window, or if there are multiple windows,\n");
-  printf("a window selector will be displayed to the user to select the window\n");
+  printf(
+      "a window selector will be displayed to the user to select the window\n");
   printf("using the mouse.\n\n");
-  printf("<command> may be one or more of the following (separated by spaces):\n\n");
+  printf(
+      "<command> may be one or more of the following (separated by "
+      "spaces):\n\n");
 
   // Start at 1 to skip "none"
   for (size_t i = 1; i < ArrayLength(kTestNames); ++i) {
@@ -938,7 +905,8 @@ static bool ParseCommandLine(int argc, wchar_t* argv[], HWND& aOutHwnd,
 
   for (int i = 0; i < argc; ++i) {
     if (!wcscmp(argv[i], kSwitchHwnd) && (i + 1) < argc) {
-      aOutHwnd = (HWND) static_cast<uintptr_t>(wcstoul(argv[i + 1], nullptr, 0));
+      aOutHwnd =
+          (HWND) static_cast<uintptr_t>(wcstoul(argv[i + 1], nullptr, 0));
       ++i;
       continue;
     }
@@ -963,17 +931,16 @@ static bool ParseCommandLine(int argc, wchar_t* argv[], HWND& aOutHwnd,
   return true;
 }
 
-#define RUN_CMD(flag, fn) \
-  do { \
-    if ((testsToRun & flag) && !fn) { \
+#define RUN_CMD(flag, fn)                             \
+  do {                                                \
+    if ((testsToRun & flag) && !fn) {                 \
       printf("Command %s failed, aborting\n", #flag); \
-      fflush(stdout); \
-      return 1; \
-    } \
-  } while(false)
+      fflush(stdout);                                 \
+      return 1;                                       \
+    }                                                 \
+  } while (false)
 
-extern "C" int wmain(int argc, wchar_t* argv[])
-{
+extern "C" int wmain(int argc, wchar_t* argv[]) {
   HWND hwnd = nullptr;
   uint32_t testsToRun = NONE;
   if (!ParseCommandLine(argc, argv, hwnd, testsToRun)) {
@@ -1010,7 +977,9 @@ extern "C" int wmain(int argc, wchar_t* argv[])
 
   auto proxyDll(mozilla::mscom::RegisterProxyDll(ia2path.c_str()));
   if (!proxyDll) {
-    printf("NULL proxyDll! Are you sure that the test bitness matches the proxy DLL?\n");
+    printf(
+        "NULL proxyDll! Are you sure that the test bitness matches the proxy "
+        "DLL?\n");
     return 1;
   }
 
@@ -1037,4 +1006,3 @@ extern "C" int wmain(int argc, wchar_t* argv[])
   fflush(stdout);
   return 0;
 }
-

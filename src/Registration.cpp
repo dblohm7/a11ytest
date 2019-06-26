@@ -29,20 +29,18 @@ namespace {
 
 // This function is defined in generated code for proxy DLLs but is not declared
 // in rpcproxy.h, so we need this typedef.
-typedef void (RPC_ENTRY *GetProxyDllInfoFnPtr)(const ProxyFileInfo*** aInfo,
-                                               const CLSID** aId);
+typedef void(RPC_ENTRY* GetProxyDllInfoFnPtr)(const ProxyFileInfo*** aInfo,
+                                              const CLSID** aId);
 
-} // anonymous namespace
+}  // anonymous namespace
 
 namespace mozilla {
 namespace mscom {
 
-unique_ptr<RegisteredProxy>
-RegisterProxyDll(const wchar_t* aDllName)
-{
+unique_ptr<RegisteredProxy> RegisterProxyDll(const wchar_t* aDllName) {
   HMODULE thisModule = nullptr;
   if (!GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                          reinterpret_cast<LPCTSTR>(&RegisterProxyDll),
                          &thisModule)) {
     return nullptr;
@@ -53,9 +51,9 @@ RegisterProxyDll(const wchar_t* aDllName)
   if (::PathIsRelativeW(aDllName)) {
     wchar_t modulePathBuf[MAX_PATH + 1] = {0};
     DWORD fileNameResult = GetModuleFileName(thisModule, modulePathBuf,
-                                     ArrayLength(modulePathBuf));
+                                             ArrayLength(modulePathBuf));
     if (!fileNameResult || (fileNameResult == ArrayLength(modulePathBuf) &&
-          ::GetLastError() == ERROR_INSUFFICIENT_BUFFER)) {
+                            ::GetLastError() == ERROR_INSUFFICIENT_BUFFER)) {
       return nullptr;
     }
     if (!PathRemoveFileSpec(modulePathBuf)) {
@@ -96,8 +94,8 @@ RegisterProxyDll(const wchar_t* aDllName)
   }
 
   IUnknown* classObject = nullptr;
-  HRESULT hr = DllGetClassObjectFn(*proxyClsid, IID_IUnknown,
-                                   (void**) &classObject);
+  HRESULT hr =
+      DllGetClassObjectFn(*proxyClsid, IID_IUnknown, (void**)&classObject);
   if (FAILED(hr)) {
     FreeLibrary(proxyDll);
     return nullptr;
@@ -113,8 +111,8 @@ RegisterProxyDll(const wchar_t* aDllName)
   }
 
   // RegisteredProxy takes ownership of proxyDll and classObject references
-  auto result(make_unique<RegisteredProxy>(reinterpret_cast<uintptr_t>(proxyDll),
-                                           classObject, regCookie));
+  auto result(make_unique<RegisteredProxy>(
+      reinterpret_cast<uintptr_t>(proxyDll), classObject, regCookie));
 
   while (*proxyInfo) {
     const ProxyFileInfo& curInfo = **proxyInfo;
@@ -133,14 +131,9 @@ RegisterProxyDll(const wchar_t* aDllName)
 
 RegisteredProxy::RegisteredProxy(uintptr_t aModule, IUnknown* aClassObject,
                                  uint32_t aRegCookie)
-  : mModule(aModule)
-  , mClassObject(aClassObject)
-  , mRegCookie(aRegCookie)
-{
-}
+    : mModule(aModule), mClassObject(aClassObject), mRegCookie(aRegCookie) {}
 
-RegisteredProxy::~RegisteredProxy()
-{
+RegisteredProxy::~RegisteredProxy() {
   /*
   if (mClassObject) {
     ::CoRevokeClassObject(mRegCookie);
@@ -152,14 +145,11 @@ RegisteredProxy::~RegisteredProxy()
   */
 }
 
-RegisteredProxy::RegisteredProxy(RegisteredProxy&& aOther)
-{
+RegisteredProxy::RegisteredProxy(RegisteredProxy&& aOther) {
   *this = forward<RegisteredProxy>(aOther);
 }
 
-RegisteredProxy&
-RegisteredProxy::operator=(RegisteredProxy&& aOther)
-{
+RegisteredProxy& RegisteredProxy::operator=(RegisteredProxy&& aOther) {
   mModule = aOther.mModule;
   aOther.mModule = 0;
   mClassObject = aOther.mClassObject;
@@ -169,5 +159,5 @@ RegisteredProxy::operator=(RegisteredProxy&& aOther)
   return *this;
 }
 
-} // namespace mscom
-} // namespace mozilla
+}  // namespace mscom
+}  // namespace mozilla

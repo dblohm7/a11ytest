@@ -6,7 +6,6 @@ namespace aspk {
 // NOT Thread safe!
 HWND SelectWindow();
 
-} // namespace aspk
+}  // namespace aspk
 
-#endif // __ASPK_WINSELECT_H
-
+#endif  // __ASPK_WINSELECT_H

@@ -13,15 +13,17 @@
 #include "DynamicallyLinkedFunctionPtr.h"
 #include "winselect.h"
 
-#define DECLARE_UNIQUE_HANDLE_TYPE(name, deleter_type) \
-  using name = std::unique_ptr<std::remove_pointer<deleter_type::pointer>::type, deleter_type>
+#define DECLARE_UNIQUE_HANDLE_TYPE(name, deleter_type)                  \
+  using name =                                                          \
+      std::unique_ptr<std::remove_pointer<deleter_type::pointer>::type, \
+                      deleter_type>
 
 #if defined(min)
-#undef min
+#  undef min
 #endif  // defined(min)
 
 #if defined(max)
-#undef max
+#  undef max
 #endif  // defined(max)
 
 static const WCHAR kClassName[] = L"ASPKWindowSelector";
@@ -36,17 +38,13 @@ static const int kDefaultWindowWidth = 273;
 struct GdiObjectDeleter {
   using pointer = HGDIOBJ;
 
-  void operator()(pointer aPtr) {
-    ::DeleteObject(aPtr);
-  }
+  void operator()(pointer aPtr) { ::DeleteObject(aPtr); }
 };
 
 struct ThemeDeleter {
   using pointer = HTHEME;
 
-  void operator()(pointer aPtr) {
-    ::CloseThemeData(aPtr);
-  }
+  void operator()(pointer aPtr) { ::CloseThemeData(aPtr); }
 };
 
 DECLARE_UNIQUE_HANDLE_TYPE(UniqueGdiObject, GdiObjectDeleter);
@@ -55,8 +53,9 @@ DECLARE_UNIQUE_HANDLE_TYPE(UniqueTheme, ThemeDeleter);
 static const UINT kDefaultDpi = 96U;
 
 static UINT GetEffectiveDpi(HMONITOR aMonitor) {
-  static const mozilla::DynamicallyLinkedFunctionPtr<decltype(&::GetDpiForMonitor)>
-    pGetDpiForMonitor(L"shcore.dll", "GetDpiForMonitor");
+  static const mozilla::DynamicallyLinkedFunctionPtr<decltype(
+      &::GetDpiForMonitor)>
+      pGetDpiForMonitor(L"shcore.dll", "GetDpiForMonitor");
   if (!pGetDpiForMonitor) {
     return kDefaultDpi;
   }
@@ -98,7 +97,7 @@ static RECT ComputeWindowPos(HMONITOR aMonitor) {
 }
 
 static const wchar_t kTextMsg[] =
-  L"Click and drag the crosshairs over the window you want to select:";
+    L"Click and drag the crosshairs over the window you want to select:";
 
 template <typename FnT>
 static bool WithThemedFont(HWND aHwnd, HDC aDc, FnT aFunc) {
@@ -129,8 +128,8 @@ static bool WithThemedFont(HWND aHwnd, HDC aDc, FnT aFunc) {
 }
 
 static RECT ComputeWindowPos(HWND aHwnd) {
-  RECT defaultPos = ComputeWindowPos(::MonitorFromWindow(aHwnd,
-                                                         MONITOR_DEFAULTTONEAREST));
+  RECT defaultPos =
+      ComputeWindowPos(::MonitorFromWindow(aHwnd, MONITOR_DEFAULTTONEAREST));
 
   auto getExtents = [&defaultPos](HWND aHwnd, HDC aDc, HTHEME aTheme) -> bool {
     RECT boundingRect;
@@ -139,10 +138,9 @@ static RECT ComputeWindowPos(HWND aHwnd) {
     }
 
     RECT extents;
-    HRESULT hr = ::GetThemeTextExtent(aTheme, aDc, 0, 0, kTextMsg,
-                                      ArrayLength(kTextMsg) - 1,
-                                      DT_CENTER | DT_TOP | DT_SINGLELINE,
-                                      &boundingRect, &extents);
+    HRESULT hr = ::GetThemeTextExtent(
+        aTheme, aDc, 0, 0, kTextMsg, ArrayLength(kTextMsg) - 1,
+        DT_CENTER | DT_TOP | DT_SINGLELINE, &boundingRect, &extents);
     if (FAILED(hr)) {
       return false;
     }
@@ -185,9 +183,7 @@ static HMONITOR GetDefaultMonitor() {
   return ::MonitorFromPoint(zeros, MONITOR_DEFAULTTOPRIMARY);
 }
 
-static void
-Highlight(HWND hwnd)
-{
+static void Highlight(HWND hwnd) {
   if (!hwnd) {
     return;
   }
@@ -209,19 +205,20 @@ Highlight(HWND hwnd)
   SelectObject(hdc, oldPen);
   DeleteObject(pen);
   ReleaseDC(hwnd, hdc);
-  // This call makes the difference between something that worked and something that didn't.
+  // This call makes the difference between something that worked and something
+  // that didn't.
   InvalidateRect(hwnd, &rect, TRUE);
 }
 
 static void ReviseWindowSize(HWND aHwnd) {
   RECT newRect = ComputeWindowPos(aHwnd);
-  ::SetWindowPos(aHwnd, nullptr, 0, 0, newRect.right,
-                 newRect.bottom, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+  ::SetWindowPos(aHwnd, nullptr, 0, 0, newRect.right, newRect.bottom,
+                 SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
 }
 
 static void Erase(HDC aDc, const RECT& aRect) {
-  WNDCLASSEX clsEx = { sizeof(clsEx) };
-  GetClassInfoEx((HINSTANCE) ::GetModuleHandle(nullptr), kClassName, &clsEx);
+  WNDCLASSEX clsEx = {sizeof(clsEx)};
+  GetClassInfoEx((HINSTANCE)::GetModuleHandle(nullptr), kClassName, &clsEx);
 
   HBRUSH bgBrush = clsEx.hbrBackground;
   // If the window class specifies a system brush color, convert it to a real
@@ -241,15 +238,16 @@ static void PaintCrossHairs(HWND aHwnd, HDC aDc) {
     return;
   }
 
-  WithThemedFont(aHwnd, aDc, [&rect](HWND aHwnd, HDC aDc, HTHEME aTheme) -> bool {
-    DTTOPTS dttOpts = { sizeof(DTTOPTS) };
-    dttOpts.dwFlags = DTT_COMPOSITED;
-    HRESULT hr = ::DrawThemeTextEx(aTheme, aDc, 0, 0, kTextMsg,
-                                   ArrayLength(kTextMsg) - 1,
-                                   DT_CENTER | DT_SINGLELINE | DT_TOP |
-                                     DT_END_ELLIPSIS, &rect, &dttOpts);
-    return SUCCEEDED(hr);
-  });
+  WithThemedFont(aHwnd, aDc,
+                 [&rect](HWND aHwnd, HDC aDc, HTHEME aTheme) -> bool {
+                   DTTOPTS dttOpts = {sizeof(DTTOPTS)};
+                   dttOpts.dwFlags = DTT_COMPOSITED;
+                   HRESULT hr = ::DrawThemeTextEx(
+                       aTheme, aDc, 0, 0, kTextMsg, ArrayLength(kTextMsg) - 1,
+                       DT_CENTER | DT_SINGLELINE | DT_TOP | DT_END_ELLIPSIS,
+                       &rect, &dttOpts);
+                   return SUCCEEDED(hr);
+                 });
 
   if (prevCursor) {
     // We don't paint the cursor during mouse capture
@@ -262,15 +260,15 @@ static void PaintCrossHairs(HWND aHwnd, HDC aDc) {
   int x = (rect.right - w) / 2;
   int y = (rect.bottom - h) / 2;
 
-  HANDLE cursor = ::LoadImage(nullptr, IDC_CROSS, IMAGE_CURSOR, 0, 0, LR_SHARED);
+  HANDLE cursor =
+      ::LoadImage(nullptr, IDC_CROSS, IMAGE_CURSOR, 0, 0, LR_SHARED);
   if (cursor) {
-    ::DrawIconEx(aDc, x, y, (HICON) cursor, w, h, 0, nullptr, DI_NORMAL);
+    ::DrawIconEx(aDc, x, y, (HICON)cursor, w, h, 0, nullptr, DI_NORMAL);
   }
 }
 
-static
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
-{
+static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam,
+                                   LPARAM lparam) {
   switch (msg) {
     case WM_CREATE: {
       ReviseWindowSize(hwnd);
@@ -286,7 +284,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
       prevCursor = NULL;
       ReleaseCapture();
       lastTarget = nullptr;
-      Highlight(target); // Target was highlighted, turn it off
+      Highlight(target);  // Target was highlighted, turn it off
       // Don't kill ourselves unless the mouse had moved outside our hwnd
       if (target == hwnd) {
         target = nullptr;
@@ -303,7 +301,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         if (ClientToScreen(hwnd, &pt)) {
           target = WindowFromPoint(pt);
           if (target != lastTarget) {
-            // Turn on indicator for target and turn off indicator for lastTarget
+            // Turn on indicator for target and turn off indicator for
+            // lastTarget
             Highlight(target);
             Highlight(lastTarget);
             lastTarget = target;
@@ -321,8 +320,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
       HDC paintDc = dc;
       HPAINTBUFFER buffer = nullptr;
       if (!remote) {
-        buffer = ::BeginBufferedPaint(dc, &ps.rcPaint, BPBF_TOPDOWNDIB,
-                                      nullptr, &paintDc);
+        buffer = ::BeginBufferedPaint(dc, &ps.rcPaint, BPBF_TOPDOWNDIB, nullptr,
+                                      &paintDc);
       }
       if (ps.fErase) {
         Erase(paintDc, ps.rcPaint);
@@ -351,10 +350,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 namespace aspk {
 
-HWND
-SelectWindow()
-{
-  HINSTANCE hInst = (HINSTANCE) ::GetModuleHandle(nullptr);
+HWND SelectWindow() {
+  HINSTANCE hInst = (HINSTANCE)::GetModuleHandle(nullptr);
 
   WNDCLASSW wc = {0};
   wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -370,10 +367,9 @@ SelectWindow()
 
   bool buffered = SUCCEEDED(::BufferedPaintInit());
 
-  HWND hwnd = CreateWindowW(kClassName, L"Window Selector",
-                            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL,
-                            NULL, hInst, nullptr);
+  HWND hwnd = CreateWindowW(kClassName, L"Window Selector", WS_OVERLAPPEDWINDOW,
+                            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                            CW_USEDEFAULT, NULL, NULL, hInst, nullptr);
   if (!hwnd) {
     UnregisterClassW(kClassName, hInst);
     return nullptr;
@@ -400,5 +396,4 @@ SelectWindow()
   return target;
 }
 
-} // namespace aspk
-
+}  // namespace aspk

@@ -20,33 +20,32 @@ namespace mscom {
  * (2) The DLL exports GetProxyDllInfo. This is not exported by default; it must
  *     be specified in the EXPORTS section of the DLL's module definition file.
  */
-class RegisteredProxy
-{
-public:
-  RegisteredProxy(uintptr_t aModule, IUnknown* aClassObject, uint32_t aRegCookie);
+class RegisteredProxy {
+ public:
+  RegisteredProxy(uintptr_t aModule, IUnknown* aClassObject,
+                  uint32_t aRegCookie);
   RegisteredProxy(RegisteredProxy&& aOther);
   RegisteredProxy& operator=(RegisteredProxy&& aOther);
 
   ~RegisteredProxy();
 
-private:
+ private:
   RegisteredProxy() = delete;
   RegisteredProxy(RegisteredProxy&) = delete;
   RegisteredProxy& operator=(RegisteredProxy&) = delete;
 
-private:
+ private:
   // Not using Windows types here because we shouldn't #include windows.h here
   // since it might pull in COM code which we want to do very carefully in
   // Registrationc.cpp.
   uintptr_t mModule;
   IUnknown* mClassObject;
-  uint32_t  mRegCookie;
+  uint32_t mRegCookie;
 };
 
 std::unique_ptr<RegisteredProxy> RegisterProxyDll(const wchar_t* aLeafName);
 
-} // namespace mscom
-} // namespace mozilla
+}  // namespace mscom
+}  // namespace mozilla
 
-#endif // mozilla_mscom_Registration_h
-
+#endif  // mozilla_mscom_Registration_h

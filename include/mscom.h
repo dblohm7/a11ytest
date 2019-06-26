@@ -12,30 +12,24 @@
 
 namespace mozilla {
 
-template<COINIT T>
-class COMApartmentRegion
-{
-public:
+template <COINIT T>
+class COMApartmentRegion {
+ public:
   COMApartmentRegion()
-    : mInitResult(::CoInitializeEx(nullptr, T | COINIT_DISABLE_OLE1DDE))
-  {
+      : mInitResult(::CoInitializeEx(nullptr, T | COINIT_DISABLE_OLE1DDE)) {
     // If this fires then we're probably mixing apartments on the same thread
     assert(SUCCEEDED(mInitResult));
   }
 
-  ~COMApartmentRegion()
-  {
+  ~COMApartmentRegion() {
     if (SUCCEEDED(mInitResult)) {
       ::CoUninitialize();
     }
   }
 
-  bool operator!() const
-  {
-    return FAILED(mInitResult);
-  }
+  bool operator!() const { return FAILED(mInitResult); }
 
-private:
+ private:
   COMApartmentRegion(const COMApartmentRegion&) = delete;
   COMApartmentRegion& operator=(const COMApartmentRegion&) = delete;
   COMApartmentRegion(COMApartmentRegion&&) = delete;
@@ -47,7 +41,6 @@ private:
 typedef COMApartmentRegion<COINIT_APARTMENTTHREADED> STARegion;
 typedef COMApartmentRegion<COINIT_MULTITHREADED> MTARegion;
 
-} // namespace mozilla
+}  // namespace mozilla
 
-#endif // mozilla_mscom_h
-
+#endif  // mozilla_mscom_h

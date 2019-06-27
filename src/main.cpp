@@ -527,7 +527,7 @@ int QueryAccInfo(HWND aHwnd, IAccessiblePtr aAcc) {
   hr = acc2->get_windowHandle(&hwnd);
   HRCHECK("get_windowHandle");
   if (hwnd != aHwnd) {
-    printf("WTF! hwnd mismatch! You suck!\n");
+    printf("hwnd mismatch!\n");
     return 1;
   }
 
@@ -555,14 +555,14 @@ int FindDocumentAndDump(HWND aHwnd) {
   HRESULT hr = AccessibleObjectFromWindow(aHwnd, OBJID_CLIENT, IID_IAccessible,
                                           (void**)&root);
   if (FAILED(hr)) {
-    printf("AccessibleObjectFromWindow failed! You suck!\n");
+    printf("AccessibleObjectFromWindow failed!\n");
     return 1;
   }
   log("OBJID_CLIENT IAccessible: 0x%p\n", acc.GetInterfacePtr());
 
   IAccessiblePtr doc = DoDfsFindRole(root, ROLE_SYSTEM_DOCUMENT);
   if (!doc) {
-    printf("Couldn't find document! You suck!\n");
+    printf("Couldn't find document!\n");
     return 1;
   }
   log("Document: 0x%p\n", doc.GetInterfacePtr());
@@ -612,7 +612,7 @@ int FindDocumentAndDump(HWND aHwnd) {
   hr = doc2->get_windowHandle(&hwnd);
   HRCHECK("get_windowHandle");
   if (hwnd != aHwnd) {
-    printf("WTF! hwnd mismatch! You suck!\n");
+    printf("hwnd mismatch!\n");
     return 1;
   }
 
@@ -678,7 +678,7 @@ static bool SpeedVisible(HWND aHwnd, IAccessiblePtr& aAcc) {
 static bool FindDocument(IAccessiblePtr& aAcc) {
   IAccessiblePtr doc = DoDfsFindRole(aAcc, ROLE_SYSTEM_DOCUMENT);
   if (!doc) {
-    printf("Couldn't find document! You suck!\n");
+    printf("Couldn't find document!\n");
     return false;
   }
 
@@ -967,8 +967,8 @@ extern "C" int wmain(int argc, wchar_t* argv[]) {
   GetWindowText(hwnd, caption, ArrayLength(caption));
   GetClassName(hwnd, className, ArrayLength(className));
   printf("HWND: %p \"%S\" \"%S\"\n", hwnd, className, caption);
-  if (!hwnd) {
-    printf("You suck!\n");
+  if (!hwnd || !IsWindow(hwnd)) {
+    printf("Invalid HWND\n");
     return 1;
   }
 
@@ -994,7 +994,7 @@ extern "C" int wmain(int argc, wchar_t* argv[]) {
   HRESULT hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible,
                                           (void**)&topLevelAcc);
   if (FAILED(hr)) {
-    printf("You suck!\n");
+    printf("AccessibleObjectFromWindow failed with HRESULT 0x%08lX\n", hr);
     return 1;
   }
   printf("OBJID_CLIENT IAccessible: 0x%p\n", topLevelAcc.GetInterfacePtr());

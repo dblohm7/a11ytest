@@ -884,13 +884,15 @@ static_assert(ArrayLength(kTests) == ArrayLength(kTestNames) &&
               "You changed the enum! Update kTests and kTestNames!");
 
 static void Usage(wchar_t* aArgv0) {
-  printf("Usage: %S [-hwnd <hwnd>] <command(s)>\n\n", aArgv0);
+  printf("Usage: %S [-hwnd <hwnd>|-s] <command(s)>\n\n", aArgv0);
   printf(
       "If -hwnd is not specified, we will try to find the Firefox window.\n");
   printf("If we cannot find the window, or if there are multiple windows,\n");
   printf(
       "a window selector will be displayed to the user to select the window\n");
   printf("using the mouse.\n\n");
+  printf(
+      "If -s is specified, we will unconditionally use the window selector.\n");
   printf(
       "<command> may be one or more of the following (separated by "
       "spaces):\n\n");

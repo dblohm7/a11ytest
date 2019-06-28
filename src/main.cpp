@@ -458,7 +458,7 @@ IAccessiblePtr DoDfsFindRole(IAccessiblePtr& aAcc, const long aRole) {
   return nullptr;
 }
 
-char* GetSource(long uniqueId) {
+const char* GetSource(long uniqueId) {
   if (uniqueId >= 0) {
     return "other";
   }
